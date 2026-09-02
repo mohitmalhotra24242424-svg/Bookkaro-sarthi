@@ -161,6 +161,16 @@ describe('stationFromLookup: name → main station (verified provider shapes)', 
     expect(stationFromLookup('BCT', stations).station?.code).toBe('BCT');
   });
 
+  it('BCT and MMCT collapse to one Mumbai Central (prefer MMCT)', () => {
+    const stations = [
+      S('CSTM', 'MUMBAI CST'),
+      S('BCT', 'MUMBAI CENTRAL'),
+      S('MMCT', 'MUMBAI CENTRAL'),
+    ];
+    expect(stationFromLookup('Mumbai Central', stations).station?.code).toBe('MMCT');
+    expect(stationFromLookup('mumbai', stations).choiceNeeded?.map((s) => s.code).sort()).toEqual(['CSTM', 'MMCT']);
+  });
+
   it('city field from provider groups Anand Vihar with Delhi — no name hardcode', () => {
     const result = stationFromLookup('delhi', [
       S('NDLS', 'New Delhi', { city: 'Delhi' }),

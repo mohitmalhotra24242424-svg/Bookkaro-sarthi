@@ -12,6 +12,7 @@ import type {
 } from '../shared/index.js';
 import { setContextSlots } from '../shared/context.js';
 import type { ContextSlots } from '../shared/context.js';
+import { collapseEquivalentStations } from '../shared/trainHalt.js';
 
 /** aaj → today, kal → tomorrow, parso → day after tomorrow; explicit dates pass through. */
 export function resolveDateText(dateText: string | null, now: Date = new Date()): string | null {
@@ -179,15 +180,7 @@ function isOperationalNoise(station: Station): boolean {
 }
 
 function uniqueByCode(stations: readonly Station[]): Station[] {
-  const seen = new Set<string>();
-  const out: Station[] = [];
-  for (const station of stations) {
-    const code = station.code.toUpperCase();
-    if (seen.has(code)) continue;
-    seen.add(code);
-    out.push(station);
-  }
-  return out;
+  return collapseEquivalentStations(stations);
 }
 
 function rankStations(stations: Station[]): Station[] {

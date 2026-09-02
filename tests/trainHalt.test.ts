@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { trainServesCommercialSegment } from '../shared/trainHalt.js';
+import {
+  canonicalStationCode,
+  collapseEquivalentStations,
+  trainServesCommercialSegment,
+} from '../shared/trainHalt.js';
 
 function stops(...codes: string[]) {
   return codes.map((stationCode) => ({ stationCode }));
@@ -20,8 +24,29 @@ describe('trainServesCommercialSegment', () => {
     expect(trainServesCommercialSegment(stops('ASR', 'NDLS'), 'NDLS', 'ASR')).toBe(false);
   });
 
+  it('true when destination appears after origin even if the code also appeared earlier', () => {
+    expect(trainServesCommercialSegment(stops('ASR', 'NDLS', 'ASR'), 'NDLS', 'ASR')).toBe(true);
+  });
+
   it('null when there is no schedule to judge', () => {
     expect(trainServesCommercialSegment([], 'ASR', 'NDLS')).toBeNull();
     expect(trainServesCommercialSegment(null, 'ASR', 'NDLS')).toBeNull();
+  });
+
+  it('BCT and MMCT are the same Mumbai Central halt', () => {
+    expect(canonicalStationCode('BCT')).toBe('MMCT');
+    expect(trainServesCommercialSegment(stops('MMCT', 'BVI', 'ST', 'NDLS'), 'BCT', 'NDLS')).toBe(true);
+    expect(trainServesCommercialSegment(stops('CSMT', 'DR', 'NDLS'), 'BCT', 'NDLS')).toBe(false);
+  });
+});
+
+describe('collapseEquivalentStations', () => {
+  it('keeps MMCT and drops duplicate BCT', () => {
+    const collapsed = collapseEquivalentStations([
+      { code: 'BCT', name: 'MUMBAI CENTRAL' },
+      { code: 'MMCT', name: 'MUMBAI CENTRAL' },
+      { code: 'LTT', name: 'LOKMANYA TILAK T' },
+    ]);
+    expect(collapsed.map((s) => s.code)).toEqual(['MMCT', 'LTT']);
   });
 });

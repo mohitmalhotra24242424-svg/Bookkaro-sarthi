@@ -132,6 +132,7 @@ import {
   stationFromDirectInput,
   stationFromLookup,
 } from './slotResolution.js';
+import { collapseEquivalentStations, commercialHaltIndex, stationCodesMatch } from '../shared/trainHalt.js';
 import { validateAIUnderstanding } from './structuredOutput.js';
 import { withTimeout } from './timeout.js';
 // Step 10 — automatic station-lookup resolution (provider-backed, all-India).
@@ -502,7 +503,7 @@ async function askStationChoice(
 ): Promise<OrchestratorTurn> {
   const unique: Station[] = [];
   const seen = new Set<string>();
-  for (const station of options) {
+  for (const station of collapseEquivalentStations(options)) {
     const code = station.code.toUpperCase();
     if (seen.has(code)) continue;
     seen.add(code);
@@ -1740,8 +1741,7 @@ async function loadTimetable(state: TurnState, trainNumber: string): Promise<Tim
 }
 
 function haltIndex(stops: readonly TrainStop[], code: string): number {
-  const want = code.toUpperCase();
-  return stops.findIndex((stop) => (stop.stationCode ?? '').toUpperCase() === want);
+  return commercialHaltIndex(stops, code);
 }
 
 function stationHaltLabel(station: Station | null | undefined, code: string): string {
@@ -1779,12 +1779,14 @@ async function refuseIfTrainSkipsSegment(
     );
   }
   const fromIdx = haltIndex(stops, fromCode);
-  const toIdx = haltIndex(stops, toCode);
+  const toIdx =
+    fromIdx < 0
+      ? haltIndex(stops, toCode)
+      : stops.findIndex((stop, index) => index > fromIdx && stationCodesMatch(stop.stationCode ?? '', toCode));
   let missing: 'from' | 'to' | 'both' | 'order' | null = null;
-  if (fromIdx < 0 && toIdx < 0) missing = 'both';
+  if (fromIdx < 0 && haltIndex(stops, toCode) < 0) missing = 'both';
   else if (fromIdx < 0) missing = 'from';
-  else if (toIdx < 0) missing = 'to';
-  else if (fromIdx >= toIdx) missing = 'order';
+  else if (toIdx < 0) missing = haltIndex(stops, toCode) < 0 ? 'to' : 'order';
   if (!missing) {
     const classes = asTravelClassCodes(timetable.travelClasses);
     if (classes.length > 0 && offeredClassCodes(state.context).length === 0) {
@@ -3341,7 +3343,7 @@ function findStopForQuery(stops: readonly TrainStop[], query: string): TrainStop
     const code = (stop.stationCode ?? '').toLowerCase();
     const name = norm(stop.stationName ?? '');
     const candidate = norm(`${stop.stationName ?? ''} ${stop.stationCode}`);
-    if (code === qn || (name && (name.includes(qn) || qn.includes(name))) || candidate === qn) return stop;
+    if (stationCodesMatch(code, qn) || (name && (name.includes(qn) || qn.includes(name))) || candidate === qn) return stop;
   }
   return null;
 }

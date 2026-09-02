@@ -255,4 +255,107 @@ describe('searchTrains commercial-halt filter', () => {
     const trains = result.data as TrainSearchResult[];
     expect(trains.map((row) => row.train.number)).toEqual(['12014']);
   });
+
+  it('BCT ≡ MMCT (Mumbai Central) and drops CSMT/BDTS trains that do not halt there', async () => {
+    const bct: Station = { code: 'BCT', name: 'Mumbai Central', zone: null, state: null, latitude: null, longitude: null };
+    const ndls: Station = { code: 'NDLS', name: 'New Delhi', zone: null, state: null, latitude: null, longitude: null };
+    const entry = (number: string, name: string): TrainSearchResult => ({
+      train: {
+        number,
+        name,
+        originStation: bct,
+        destinationStation: ndls,
+        departureTime: '17:00',
+        arrivalTime: '08:00',
+        runsOn: null,
+        travelClasses: ['3A', '2A'],
+        pantryCar: null,
+      },
+      fromStation: bct,
+      toStation: ndls,
+      departureTime: '17:00',
+      arrivalTime: '08:00',
+      durationMinutes: 900,
+    });
+    const stop = (stationCode: string): Timetable['stops'][number] => ({
+      stationCode,
+      stationName: stationCode,
+      arrivalTime: null,
+      departureTime: null,
+      dayCount: 1,
+      distanceKm: null,
+      haltMinutes: null,
+    });
+    const schedules: Record<string, string[]> = {
+      '12951': ['MMCT', 'BVI', 'ST', 'BRC', 'RTM', 'NAD', 'KOTA', 'NDLS'],
+      '11057': ['CSMT', 'DR', 'TNA', 'KSRA', 'IGP', 'BSL', 'KNW', 'ET', 'BPL', 'JHS', 'GWL', 'AGC', 'MTJ', 'NDLS'],
+      '19019': ['BDTS', 'BVI', 'ST', 'BRC', 'RTM', 'KOTA', 'NZM'],
+    };
+    const make = (id: ProviderId, caps: RailwayCapability[]): RailwayProvider =>
+      ({
+        providerId: id,
+        displayName: `${id}-fake`,
+        capabilities: caps,
+        supports: (c: RailwayCapability) => caps.includes(c),
+        stationLookup: () => Promise.resolve(providerEmpty(id)),
+        trainSearch: () =>
+          Promise.resolve(
+            providerSuccess('RAILCORE', [
+              entry('12951', 'Mumbai Rajdhani'),
+              entry('11057', 'Amritsar Express'),
+              entry('19019', 'Dehradun Express'),
+            ]),
+          ),
+        trainInfo: () => Promise.resolve(providerEmpty(id)),
+        timetable: (q: { trainNumber: string }) => {
+          const codes = schedules[q.trainNumber];
+          if (!codes) return Promise.resolve(providerEmpty(id));
+          return Promise.resolve(
+            providerSuccess('RAILCORE', {
+              trainNumber: q.trainNumber,
+              trainName: q.trainNumber,
+              stops: codes.map(stop),
+            }),
+          );
+        },
+        liveStatus: () => Promise.resolve(providerEmpty(id)),
+        availability: () => Promise.resolve(providerEmpty(id)),
+        fare: () => Promise.resolve(providerEmpty(id)),
+        pnr: () => Promise.resolve(providerEmpty(id)),
+        cancelledTrains: () => Promise.resolve(providerEmpty(id)),
+      }) as unknown as RailwayProvider;
+    const router = new RailwayProviderRouter({
+      providers: [make('RAILCORE', ['stationLookup', 'trainSearch', 'timetable', 'liveStatus', 'availability', 'fare'])],
+    });
+    const registry = createProductionToolRegistry({ router });
+    const result = await registry.execute(
+      {
+        id: 't-bct',
+        tool: 'searchTrains',
+        input: { originCode: 'BCT', destinationCode: 'NDLS', journeyDate: '2026-09-04' },
+        requestedBy: 'AI',
+        conversationId: null,
+        createdAt: new Date().toISOString(),
+      },
+      { actor: 'AI', userId: 'u', conversationId: null },
+    );
+    expect(result.ok).toBe(true);
+    const trains = result.data as TrainSearchResult[];
+    expect(trains.map((row) => row.train.number)).toEqual(['12951']);
+  });
+
+  it('lookupStation collapses BCT into MMCT so Mumbai Central is offered once', async () => {
+    const stations: Station[] = [
+      { code: 'BCT', name: 'MUMBAI CENTRAL', zone: null, state: null, latitude: null, longitude: null },
+      { code: 'MMCT', name: 'MUMBAI CENTRAL', zone: null, state: null, latitude: null, longitude: null },
+      { code: 'LTT', name: 'LOKMANYA TILAK T', zone: null, state: null, latitude: null, longitude: null },
+    ];
+    const registry = createProductionToolRegistry({ router: fakeRouter({ stationLookup: providerSuccess('RAILCORE', stations) }) });
+    const result = await registry.execute(
+      { id: 't-lookup', tool: 'lookupStation', input: { query: 'Mumbai' }, requestedBy: 'AI', conversationId: null, createdAt: new Date().toISOString() },
+      { actor: 'AI', userId: 'u', conversationId: null },
+    );
+    expect(result.ok).toBe(true);
+    expect((result.data as Station[]).map((s) => s.code)).toEqual(['MMCT', 'LTT']);
+  });
 });

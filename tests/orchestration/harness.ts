@@ -109,13 +109,26 @@ const FARE: Fare = {
   retrievedAt: '2026-08-26T00:00:00Z',
 };
 
+function ttStop(stationCode: string, stationName: string, departureTime: string | null, arrivalTime: string | null, distanceKm: number | null): Timetable['stops'][number] {
+  return { stationCode, stationName, arrivalTime, departureTime, dayCount: 1, distanceKm, haltMinutes: arrivalTime && departureTime ? 2 : null };
+}
+
+/** All harness stations, plus a closing ASR so reverse pairs (NDLS→ASR) still halt-check in mocks. */
 const TIMETABLE: Timetable = {
   trainNumber: '12014',
   trainName: 'Amritsar Shatabdi',
   stops: [
-    { stationCode: 'ASR', stationName: 'Amritsar Jn', arrivalTime: null, departureTime: '05:00', dayCount: 1, distanceKm: 0, haltMinutes: null },
-    { stationCode: 'LDH', stationName: 'Ludhiana Jn', arrivalTime: '06:49', departureTime: '06:51', dayCount: 1, distanceKm: 135, haltMinutes: 2 },
-    { stationCode: 'NDLS', stationName: 'New Delhi', arrivalTime: '11:15', departureTime: null, dayCount: 1, distanceKm: 447, haltMinutes: null },
+    ttStop('ASR', 'Amritsar Jn', '05:00', null, 0),
+    ttStop('BEAS', 'Beas', '05:40', '05:38', 43),
+    ttStop('LDH', 'Ludhiana Jn', '06:51', '06:49', 135),
+    ttStop('JRC', 'Jalandhar City', '07:20', '07:18', 180),
+    ttStop('CHD', 'Chandigarh', '08:10', '08:05', 250),
+    ttStop('NDLS', 'New Delhi', '11:15', '11:10', 447),
+    ttStop('DLI', 'Delhi Jn', '11:40', '11:35', 452),
+    ttStop('NZM', 'Hazrat Nizamuddin', '12:00', '11:55', 458),
+    ttStop('JAT', 'Jammu Tawi', '20:00', '19:50', 900),
+    ttStop('HW', 'Haridwar Jn', '22:00', '21:50', 1100),
+    ttStop('ASR', 'Amritsar Jn', null, '23:50', 1500),
   ],
 };
 

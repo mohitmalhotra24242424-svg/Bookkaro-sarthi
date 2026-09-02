@@ -22,7 +22,7 @@ import type {
   TrainStop,
   TravelClassCode,
 } from '../../shared/index.js';
-import { isZeroResult, trainServesCommercialSegment } from '../../shared/index.js';
+import { canonicalStationCode, collapseEquivalentStations, isZeroResult, trainServesCommercialSegment } from '../../shared/index.js';
 import type { Station } from '../../shared/index.js';
 import type { ToolCall, ToolResult } from '../../shared/index.js';
 import type { RailwayProviderRouter } from '../../railway/index.js';
@@ -150,10 +150,42 @@ function writeTimetableCache(trainNumber: string, stops: readonly TrainStop[], n
   timetableCache.set(trainNumber, { stops, expiresAt: now + TIMETABLE_CACHE_TTL_MS });
 }
 
+async function mapPool<T>(items: readonly T[], concurrency: number, worker: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const n = Math.max(1, Math.min(concurrency, items.length));
+  await Promise.all(
+    Array.from({ length: n }, async () => {
+      while (next < items.length) {
+        const index = next;
+        next += 1;
+        await worker(items[index]!);
+      }
+    }),
+  );
+}
+
+async function loadStopsForTrain(
+  router: RailwayProviderRouter,
+  trainNumber: string,
+  now: number,
+): Promise<readonly TrainStop[] | null> {
+  const cached = readTimetableCache(trainNumber, now);
+  if (cached) return cached;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const tt = await router.timetable({ trainNumber });
+    if (!tt.ok || isZeroResult(tt) || !tt.data) continue;
+    const stops = Array.isArray(tt.data.stops) ? tt.data.stops : [];
+    if (stops.length === 0) continue;
+    writeTimetableCache(trainNumber, stops, now);
+    return stops;
+  }
+  return null;
+}
+
 /**
  * Drop trains whose live commercial schedule does not halt at BOTH ends
- * (RailCore /routes/trains often lists a DLI train for an NDLS query).
- * Unknown schedule → keep (do not empty the list on a timetable outage).
+ * (RailCore /routes/trains lists BDTS/CSMT trains for a BCT query, DLI trains for NDLS).
+ * Unverified schedule is dropped too — a fake BCT→NDLS card is worse than a shorter list.
  */
 async function keepTrainsServingSegment(
   router: RailwayProviderRouter,
@@ -165,28 +197,11 @@ async function keepTrainsServingSegment(
   const now = Date.now();
   const unique = [...new Set(results.map((entry) => entry.train.number).filter(Boolean))];
   const halt = new Map<string, boolean | null>();
-  await Promise.all(
-    unique.map(async (trainNumber) => {
-      const cached = readTimetableCache(trainNumber, now);
-      if (cached) {
-        halt.set(trainNumber, trainServesCommercialSegment(cached, fromCode, toCode));
-        return;
-      }
-      const tt = await router.timetable({ trainNumber });
-      if (!tt.ok || isZeroResult(tt) || !tt.data) {
-        halt.set(trainNumber, null);
-        return;
-      }
-      const stops = Array.isArray(tt.data.stops) ? tt.data.stops : [];
-      if (stops.length === 0) {
-        halt.set(trainNumber, null);
-        return;
-      }
-      writeTimetableCache(trainNumber, stops, now);
-      halt.set(trainNumber, trainServesCommercialSegment(stops, fromCode, toCode));
-    }),
-  );
-  return results.filter((entry) => halt.get(entry.train.number) !== false);
+  await mapPool(unique, 3, async (trainNumber) => {
+    const stops = await loadStopsForTrain(router, trainNumber, now);
+    halt.set(trainNumber, trainServesCommercialSegment(stops, fromCode, toCode));
+  });
+  return results.filter((entry) => halt.get(entry.train.number) === true);
 }
 
 /** Test hook: clears the station cache. */
@@ -220,8 +235,9 @@ export function createRailwayToolExecutors(router: RailwayProviderRouter): Recor
 
       const result = await router.stationLookup(query); // RailCore primary (only capability holder)
       if (result.ok && !isZeroResult(result) && result.data !== null && result.data.length > 0) {
-        writeStationCache(cacheKey, result.data, result.source.toLowerCase(), now);
-        return mapResult(call, result);
+        const collapsed = collapseEquivalentStations(result.data);
+        writeStationCache(cacheKey, collapsed, result.source.toLowerCase(), now);
+        return mapResult(call, { ...result, data: collapsed });
       }
       return mapResult(call, result); // honest failure/empty — never cached, never fabricated
     },
@@ -229,8 +245,8 @@ export function createRailwayToolExecutors(router: RailwayProviderRouter): Recor
     searchTrains: async (input, ctx): Promise<ToolResult> => {
       const call = callOf(ctx, 'searchTrains');
       const query: TrainSearchQuery = {
-        originCode: (stringInput(input, 'originCode') ?? '').toUpperCase(),
-        destinationCode: (stringInput(input, 'destinationCode') ?? '').toUpperCase(),
+        originCode: canonicalStationCode(stringInput(input, 'originCode') ?? ''),
+        destinationCode: canonicalStationCode(stringInput(input, 'destinationCode') ?? ''),
         journeyDate: stringInput(input, 'journeyDate'),
       };
       void numberInput(input, 'passengerCount');
