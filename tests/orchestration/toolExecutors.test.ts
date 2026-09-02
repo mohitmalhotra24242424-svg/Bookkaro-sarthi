@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { RailwayProviderRouter } from '../../railway/index.js';
 import type { RailwayProvider } from '../../railway/index.js';
 import { providerEmpty, providerFailure, providerSuccess } from '../../shared/index.js';
-import type { ProviderId, RailwayCapability, ProviderResult, Station } from '../../shared/index.js';
+import type { ProviderId, RailwayCapability, ProviderResult, Station, Timetable, TrainSearchResult } from '../../shared/index.js';
 import { createProductionToolRegistry } from '../../tools/executors/index.js';
 import { createInMemoryDraftStore } from '../../tools/executors/index.js';
 import { TOOL_PERMISSIONS, canAiRequestTool, toolPermission } from '../../tools/permissions.js';
@@ -167,5 +167,92 @@ describe('application tools: booking safety & honest user data', () => {
     );
     expect(serverResult.ok).toBe(false); // even server-side, no executor exists in Step 3
     expect(serverResult.unavailableReason).toBe('NOT_IMPLEMENTED');
+  });
+});
+
+
+describe('searchTrains commercial-halt filter', () => {
+  it('drops trains that do not halt at the asked destination (22430 DLI ≠ NDLS)', async () => {
+    const asr: Station = { code: 'ASR', name: 'Amritsar Jn', zone: null, state: null, latitude: null, longitude: null };
+    const ndls: Station = { code: 'NDLS', name: 'New Delhi', zone: null, state: null, latitude: null, longitude: null };
+    const entry = (number: string, name: string): TrainSearchResult => ({
+      train: {
+        number,
+        name,
+        originStation: asr,
+        destinationStation: ndls,
+        departureTime: '09:30',
+        arrivalTime: '16:55',
+        runsOn: null,
+        travelClasses: ['2S', 'CC'],
+        pantryCar: null,
+      },
+      fromStation: asr,
+      toStation: ndls,
+      departureTime: '09:30',
+      arrivalTime: '16:55',
+      durationMinutes: 445,
+    });
+    const stop = (stationCode: string): Timetable['stops'][number] => ({
+      stationCode,
+      stationName: stationCode,
+      arrivalTime: null,
+      departureTime: null,
+      dayCount: 1,
+      distanceKm: null,
+      haltMinutes: null,
+    });
+    const make = (id: ProviderId, caps: RailwayCapability[]): RailwayProvider =>
+      ({
+        providerId: id,
+        displayName: `${id}-fake`,
+        capabilities: caps,
+        supports: (c: RailwayCapability) => caps.includes(c),
+        stationLookup: () => Promise.resolve(providerEmpty(id)),
+        trainSearch: () =>
+          Promise.resolve(providerSuccess('RAILCORE', [entry('12014', 'Amritsar Shatabdi'), entry('22430', 'PTK DLI EXP')])),
+        trainInfo: () => Promise.resolve(providerEmpty(id)),
+        timetable: (q: { trainNumber: string }) => {
+          if (q.trainNumber === '22430') {
+            return Promise.resolve(
+              providerSuccess('RAILCORE', {
+                trainNumber: '22430',
+                trainName: 'PTK DLI EXP',
+                stops: [stop('PTK'), stop('ASR'), stop('BEAS'), stop('JUC'), stop('DLI')],
+              }),
+            );
+          }
+          return Promise.resolve(
+            providerSuccess('RAILCORE', {
+              trainNumber: '12014',
+              trainName: 'Amritsar Shatabdi',
+              stops: [stop('ASR'), stop('LDH'), stop('NDLS')],
+            }),
+          );
+        },
+        liveStatus: () => Promise.resolve(providerEmpty(id)),
+        availability: () => Promise.resolve(providerEmpty(id)),
+        fare: () => Promise.resolve(providerEmpty(id)),
+        pnr: () => Promise.resolve(providerEmpty(id)),
+        cancelledTrains: () => Promise.resolve(providerEmpty(id)),
+      }) as unknown as RailwayProvider;
+    const router = new RailwayProviderRouter({
+      providers: [make('RAILCORE', ['stationLookup', 'trainSearch', 'timetable', 'liveStatus', 'availability', 'fare'])],
+    });
+    const registry = createProductionToolRegistry({ router });
+    const result = await registry.execute(
+      {
+        id: 't-halt',
+        tool: 'searchTrains',
+        input: { originCode: 'ASR', destinationCode: 'NDLS', journeyDate: '2026-09-04' },
+        requestedBy: 'AI',
+        conversationId: null,
+        createdAt: new Date().toISOString(),
+      },
+      { actor: 'AI', userId: 'u', conversationId: null },
+    );
+    expect(result.ok).toBe(true);
+    const trains = result.data as TrainSearchResult[];
+    expect(trains.map((row) => row.train.number)).toEqual(['12014']);
   });
 });

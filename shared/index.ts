@@ -9,3 +9,4 @@ export * from './providerResults.js';
 export * from './bookingFlow.js';
 export * from './context.js';
 export * from './intents.js';
+export * from './trainHalt.js';

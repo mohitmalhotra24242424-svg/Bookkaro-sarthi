@@ -19,9 +19,10 @@ import type {
   TrainRefQuery,
   TrainSearchQuery,
   TrainSearchResult,
+  TrainStop,
   TravelClassCode,
 } from '../../shared/index.js';
-import { isZeroResult } from '../../shared/index.js';
+import { isZeroResult, trainServesCommercialSegment } from '../../shared/index.js';
 import type { Station } from '../../shared/index.js';
 import type { ToolCall, ToolResult } from '../../shared/index.js';
 import type { RailwayProviderRouter } from '../../railway/index.js';
@@ -121,9 +122,77 @@ function writeStationCache(key: string, stations: Station[], source: string, now
   stationCache.set(key, { stations, source, retrievedAt: now, expiresAt: now + STATION_CACHE_TTL_MS });
 }
 
+const TIMETABLE_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const TIMETABLE_CACHE_MAX = 200;
+
+interface TimetableCacheEntry {
+  stops: readonly TrainStop[];
+  expiresAt: number;
+}
+
+const timetableCache = new Map<string, TimetableCacheEntry>();
+
+function readTimetableCache(trainNumber: string, now: number): readonly TrainStop[] | null {
+  const entry = timetableCache.get(trainNumber);
+  if (!entry) return null;
+  if (entry.expiresAt < now) {
+    timetableCache.delete(trainNumber);
+    return null;
+  }
+  return entry.stops;
+}
+
+function writeTimetableCache(trainNumber: string, stops: readonly TrainStop[], now: number): void {
+  if (timetableCache.size >= TIMETABLE_CACHE_MAX) {
+    const oldest = timetableCache.keys().next().value;
+    if (oldest !== undefined) timetableCache.delete(oldest);
+  }
+  timetableCache.set(trainNumber, { stops, expiresAt: now + TIMETABLE_CACHE_TTL_MS });
+}
+
+/**
+ * Drop trains whose live commercial schedule does not halt at BOTH ends
+ * (RailCore /routes/trains often lists a DLI train for an NDLS query).
+ * Unknown schedule → keep (do not empty the list on a timetable outage).
+ */
+async function keepTrainsServingSegment(
+  router: RailwayProviderRouter,
+  results: readonly TrainSearchResult[],
+  fromCode: string,
+  toCode: string,
+): Promise<TrainSearchResult[]> {
+  if (!fromCode || !toCode || results.length === 0) return [...results];
+  const now = Date.now();
+  const unique = [...new Set(results.map((entry) => entry.train.number).filter(Boolean))];
+  const halt = new Map<string, boolean | null>();
+  await Promise.all(
+    unique.map(async (trainNumber) => {
+      const cached = readTimetableCache(trainNumber, now);
+      if (cached) {
+        halt.set(trainNumber, trainServesCommercialSegment(cached, fromCode, toCode));
+        return;
+      }
+      const tt = await router.timetable({ trainNumber });
+      if (!tt.ok || isZeroResult(tt) || !tt.data) {
+        halt.set(trainNumber, null);
+        return;
+      }
+      const stops = Array.isArray(tt.data.stops) ? tt.data.stops : [];
+      if (stops.length === 0) {
+        halt.set(trainNumber, null);
+        return;
+      }
+      writeTimetableCache(trainNumber, stops, now);
+      halt.set(trainNumber, trainServesCommercialSegment(stops, fromCode, toCode));
+    }),
+  );
+  return results.filter((entry) => halt.get(entry.train.number) !== false);
+}
+
 /** Test hook: clears the station cache. */
 export function clearStationCacheForTests(): void {
   stationCache.clear();
+  timetableCache.clear();
 }
 
 export function createRailwayToolExecutors(router: RailwayProviderRouter): Record<string, ToolExecutor> {
@@ -165,7 +234,14 @@ export function createRailwayToolExecutors(router: RailwayProviderRouter): Recor
         journeyDate: stringInput(input, 'journeyDate'),
       };
       void numberInput(input, 'passengerCount');
-      return mapResult<TrainSearchResult[]>(call, await router.trainSearch(query));
+      const search = await router.trainSearch(query);
+      const mapped = mapResult<TrainSearchResult[]>(call, search);
+      if (!mapped.ok || !Array.isArray(mapped.data) || mapped.data.length === 0) return mapped;
+      const kept = await keepTrainsServingSegment(router, mapped.data, query.originCode, query.destinationCode);
+      if (kept.length === 0) {
+        return { ...mapped, data: null, unavailableReason: 'NO_RESULTS' };
+      }
+      return { ...mapped, data: kept };
     },
 
     getTrainInfo: async (input, ctx): Promise<ToolResult> => {
