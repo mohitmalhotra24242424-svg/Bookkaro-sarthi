@@ -78,18 +78,28 @@ export interface StationResolution {
   error: string | null;
 }
 
-// A direct code is what the USER TYPED in caps (ASR, NDLS, BCT…). Mixed-case
-// words ("Jammu", "Amritsar") are NAMES and must be resolved by the lookup
-// tool — codes are never guessed from names.
+// A direct code is what the USER TYPED as a code (ASR, NDLS, BCT, or lowercase
+// asr/ldh on mobile). Mixed-case words ("Jammu", "Amritsar") are NAMES and must
+// be resolved by the lookup tool — codes are never guessed from names.
 const TYPED_STATION_CODE = /^[A-Z]{2,6}\d{0,2}$/;
+const TYPED_STATION_CODE_LOWER = /^[a-z]{3,4}\d{0,2}$/;
+const LOWER_CODE_STOP = new Set([
+  'kal', 'aaj', 'hai', 'hain', 'bhai', 'yaar', 'from', 'city', 'cant',
+  'this', 'that', 'with', 'have', 'been', 'just', 'then', 'than',
+]);
+
+function asTypedCode(query: string): string | null {
+  const trimmed = query.trim();
+  if (TYPED_STATION_CODE.test(trimmed)) return trimmed;
+  if (TYPED_STATION_CODE_LOWER.test(trimmed) && !LOWER_CODE_STOP.has(trimmed)) return trimmed.toUpperCase();
+  return null;
+}
 
 /** A user-typed code is user-provided (allowed, name stays null); names need the provider. */
 export function stationFromDirectInput(query: string): StationResolution | null {
-  const trimmed = query.trim();
-  if (TYPED_STATION_CODE.test(trimmed)) {
-    return { station: { code: trimmed, name: null, zone: null, state: null, latitude: null, longitude: null }, fromCode: true, error: null };
-  }
-  return null;
+  const code = asTypedCode(query);
+  if (!code) return null;
+  return { station: { code, name: null, zone: null, state: null, latitude: null, longitude: null }, fromCode: true, error: null };
 }
 
 /** Historic / colloquial city names → the name RailCore actually indexes. */
@@ -338,8 +348,9 @@ export function mergeCorrection(
 /** Resolve a bare candidate into a minimal Station (name-only; code comes from lookup later). */
 export function stationForCandidate(candidate: string): Station {
   const trimmed = candidate.trim();
-  if (TYPED_STATION_CODE.test(trimmed)) {
-    return { code: trimmed, name: null, zone: null, state: null, latitude: null, longitude: null };
+  const code = asTypedCode(trimmed);
+  if (code) {
+    return { code, name: null, zone: null, state: null, latitude: null, longitude: null };
   }
   // name-only placeholder — the orchestrator resolves the code via lookupStation before any tool call
   return { code: '', name: trimmed, zone: null, state: null, latitude: null, longitude: null };

@@ -439,7 +439,7 @@ function preferUserStationQuery(modelQuery: string | null, detQuery: string | nu
   if (detQuery) {
     const typed = stationFromDirectInput(detQuery)?.station;
     if (typed && userMentionedToken(userMessage, typed.code)) {
-      return detQuery;
+      return typed.code;
     }
   }
   if (modelQuery) {
