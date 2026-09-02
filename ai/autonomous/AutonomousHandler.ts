@@ -111,7 +111,7 @@ export async function handleAutonomously(
   const correctionsApplied: string[] = [];
   let resumedPausedBooking = false;
 
-  const u = understandAutonomously(input.message, context);
+  let u = understandAutonomously(input.message, context);
 
   // ── FIRST: If we're waiting for a station choice, resolve the answer deterministically.
   // The reply may be "pehla", "doosra", "LDH", "New Delhi", a station name, etc.
@@ -129,7 +129,8 @@ export async function handleAutonomously(
       : { destination: choice };
     context = setContextSlots(context, patch as any, 'FILL_MISSING', contextUpdatedAt);
     context = { ...context, stationChoices: null, pendingStationResolution: null, lastAskedField: null, pendingQuestion: null, pendingSemanticPlan: null, updatedAt: contextUpdatedAt };
-    // Re-run the intent engine on the original context (now with resolved station) so booking flow continues.
+    // Re-run understanding so the remaining station gets resolved / next ambiguity is asked.
+    u = understandAutonomously(input.message, context);
   }
 
   return await runCore(input, deps, now, context, u, correctionsApplied, resumedPausedBooking, contextUpdatedAt);
