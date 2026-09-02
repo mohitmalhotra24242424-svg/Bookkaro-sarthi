@@ -26,7 +26,7 @@ import { understandAutonomously } from './AutonomousIntentEngine.js';
 import type { AutonomousUnderstanding, ExtractedEntity } from './AutonomousIntentEngine.js';
 import type { TravelClassCode } from '../../shared/types/railway.js';
 import { generateReply } from './AutonomousReplyGenerator.js';
-import { resolveDateText, stationFromLookup } from '../slotResolution.js';
+import { resolveDateText, stationFromLookup, resolveStationChoice } from '../slotResolution.js';
 import { composeKnowledgeAnswer } from '../../shared/railwayKnowledge.js';
 import { newId } from '../../shared/ids.js';
 import type { ToolCall } from '../../shared/types/tools.js';
@@ -113,6 +113,33 @@ export async function handleAutonomously(
 
   const u = understandAutonomously(input.message, context);
 
+  // ── FIRST: If we're waiting for a station choice, resolve the answer deterministically.
+  // The reply may be "pehla", "doosra", "LDH", "New Delhi", a station name, etc.
+  if ((context as any).stationChoices) {
+    const pending = (context as any).stationChoices as { field: 'origin' | 'destination'; options: readonly Station[] };
+    const choice = resolveStationChoice(input.message, pending.options);
+    if (!choice) {
+      const optList = pending.options.slice(0, 5).map((s, i) => `   ${i + 1}. ${s.name}${s.code ? ` (${s.code})` : ''}`).join('\n');
+      const reply = `Samajh nahi aaya — ${pending.field === 'origin' ? 'kaha se' : 'kaha tak'} ke liye in mein se kaunsa station hai?\n${optList}`;
+      context = { ...context, pendingQuestion: reply, updatedAt: contextUpdatedAt };
+      return finalize(reply, u, [], null, null, context, correctionsApplied, resumedPausedBooking);
+    }
+    const patch: Record<string, unknown> = pending.field === 'origin'
+      ? { origin: choice }
+      : { destination: choice };
+    context = setContextSlots(context, patch as any, 'FILL_MISSING', contextUpdatedAt);
+    context = { ...context, stationChoices: null, pendingStationResolution: null, lastAskedField: null, pendingQuestion: null, pendingSemanticPlan: null, updatedAt: contextUpdatedAt };
+    // Re-run the intent engine on the original context (now with resolved station) so booking flow continues.
+  }
+
+  return await runCore(input, deps, now, context, u, correctionsApplied, resumedPausedBooking, contextUpdatedAt);
+}
+
+async function runCore(
+  input: AutonomousHandlerInput, deps: { registry: ToolRegistry; now?: () => Date },
+  now: () => Date, context: ConversationContext, u: AutonomousUnderstanding,
+  correctionsApplied: string[], resumedPausedBooking: boolean, contextUpdatedAt: string,
+): Promise<AutonomousHandlerOutput> {
   // ── HOLD ──
   if (u.primaryIntent === 'HOLD_PAUSE' && context.bookingStage && context.bookingStage !== 'IDLE') {
     context = {
