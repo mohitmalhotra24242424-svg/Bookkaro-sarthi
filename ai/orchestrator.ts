@@ -435,6 +435,13 @@ function userMentionedToken(message: string, token: string): boolean {
 const BARE_STATION_SUFFIX_QUERY = /^(jn\.?|jnc|junction|cantt\.?|cant|cantonment|terminus|terminal|cst|central|city)$/i;
 
 function preferUserStationQuery(modelQuery: string | null, detQuery: string | null, userMessage: string): string | null {
+  // User-typed station codes (ASR, LDH, NDLS) always beat a model-expanded city name.
+  if (detQuery) {
+    const typed = stationFromDirectInput(detQuery)?.station;
+    if (typed && userMentionedToken(userMessage, typed.code)) {
+      return detQuery;
+    }
+  }
   if (modelQuery) {
     const inventedCode = stationFromDirectInput(modelQuery)?.station?.code;
     if (inventedCode && !userMentionedToken(userMessage, inventedCode)) {
