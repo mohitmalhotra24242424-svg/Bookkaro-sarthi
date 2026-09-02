@@ -381,20 +381,62 @@ function extractDate(text: string): string | null {
 }
 
 function detectStations(text: string): { origin: string | null; destination: string | null; mentioned: string[] } {
-  // Simple heuristic for "X se Y", "from X to Y", "X to Y"
-  const stations: string[] = [];
+  // Token-based, same idea as DeterministicNLU: origin is the station BEFORE "se",
+  // never the whole prefix ("mujhe kal amritsar se …" must NOT become origin).
+  const STOP = new Set([
+    'mujhe', 'mujhko', 'mere', 'mera', 'meri', 'bhai', 'yaar', 'pls', 'please', 'ji', 'sir',
+    'kal', 'aaj', 'parso', 'subah', 'dopahar', 'shaam', 'raat', 'morning', 'afternoon', 'evening', 'night',
+    'ki', 'ke', 'ka', 'ko', 'train', 'trains', 'ticket', 'tickets', 'chahiye', 'jana', 'jaana',
+    'hum', 'ham', 'main', 'hai', 'hain', 'ek', 'do', 'teen', 'log', 'se', 'from', 'to', 'tak',
+    'theek', 'ok', 'okay', 'btao', 'batao', 'dikhao', 'hi', 'hello', 'hey', 'namaste',
+    '2', '3', '4', '5', '6', 'subha', 'savere',
+  ]);
+  const SUFFIX = new Set(['jn', 'jnc', 'junction', 'cantt', 'cant', 'city', 'central']);
+  const tokens = text.split(/[\s,]+/).map((t) => t.replace(/[?.!]+$/, '')).filter(Boolean);
+  const lower = tokens.map((t) => t.toLowerCase());
+  const isStation = (i: number): boolean => {
+    const t = lower[i];
+    if (!t || STOP.has(t) || SUFFIX.has(t) || /^\d+$/.test(t)) return false;
+    return /^[a-z\u0900-\u097F]{2,}$/i.test(tokens[i]!);
+  };
+  const phraseAt = (i: number): string => {
+    let phrase = tokens[i]!;
+    let j = i + 1;
+    while (j < tokens.length && SUFFIX.has(lower[j]!)) {
+      phrase += ` ${tokens[j]}`;
+      j += 1;
+    }
+    return phrase;
+  };
+
   let origin: string | null = null;
   let destination: string | null = null;
-
-  const seMatch = text.match(/([a-z\u0900-\u097F\s]{2,30}?)\s+se\s+([a-z\u0900-\u097F\s]{2,30}?)(?:\s|$|,|ke|ki|jaana|jana|train|ticket)/i);
-  const fromToMatch = text.match(/from\s+([a-z\s]{2,30}?)\s+to\s+([a-z\s]{2,30}?)(?:\s|$|,|ke|ki|on|by)/i);
-  const toMatch = text.match(/(?:^|\s)([a-z]{3,30})\s+to\s+([a-z\s]{3,30}?)(?:\s|$|,|ke|ki|on)/i);
-
-  if (seMatch) { origin = seMatch[1]!.trim(); destination = seMatch[2]!.trim(); }
-  else if (fromToMatch) { origin = fromToMatch[1]!.trim(); destination = fromToMatch[2]!.trim(); }
-  else if (toMatch) { origin = toMatch[1]!.trim(); destination = toMatch[2]!.trim(); }
-
-  return { origin, destination, mentioned: stations };
+  for (let i = 0; i < lower.length; i += 1) {
+    if (lower[i] === 'se' && i > 0) {
+      let base = i - 1;
+      if (base >= 0 && SUFFIX.has(lower[base]!)) base -= 1;
+      if (base >= 0 && isStation(base)) origin = phraseAt(base);
+    }
+    if (lower[i] === 'from') {
+      for (let j = i + 1; j < Math.min(i + 3, lower.length); j += 1) {
+        if (isStation(j)) { origin = phraseAt(j); break; }
+      }
+    }
+    if (lower[i] === 'to' || lower[i] === 'tak') {
+      for (let j = i + 1; j < Math.min(i + 3, lower.length); j += 1) {
+        if (isStation(j)) { destination = phraseAt(j); break; }
+      }
+    }
+  }
+  if (origin && !destination) {
+    const se = lower.findIndex((t) => t === 'se');
+    if (se >= 0) {
+      for (let j = se + 1; j < lower.length; j += 1) {
+        if (isStation(j)) { destination = phraseAt(j); break; }
+      }
+    }
+  }
+  return { origin, destination, mentioned: [] };
 }
 
 // ── MAIN: understand() ───────────────────────────────────────────────────────

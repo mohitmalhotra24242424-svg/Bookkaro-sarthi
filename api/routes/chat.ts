@@ -1,14 +1,14 @@
 /**
  * POST /api/chat — AI-FIRST conversation endpoint.
  *
- * The AUTONOMOUS HANDLER (ChatGPT-style handover) runs FIRST. It deeply
- * understands Hinglish/Hindi/English input (typos, slang, follow-ups,
- * multi-intent, corrections, small-talk, greetings), decides khud hi what
- * to do, calls the validated tool layer, and produces a natural reply.
+ * Railway questions are handed to the REAL AI (NVIDIA GPT-OSS → Nemotron
+ * via runAiOrchestrator / orchestrateTurn) so intent is understood like
+ * ChatGPT — not a regex keyword engine. The regex autonomous layer is
+ * kept ONLY for pure meta chat (hi / thanks / bye) where no railway
+ * slots or booking state are involved.
  *
  * Fallback chain (safe, never 500s):
- *   AutonomousHandler → runAiOrchestrator (Step 6 semantic planner) →
- *   orchestrateTurn (deterministic core) → honest apology.
+ *   meta (autonomous) → NVIDIA orchestrator → deterministic NLU → honest apology.
  *
  * All tool execution still flows through the deterministic, validated
  * ToolRegistry → RailwayProviderRouter (RailCore primary → RailKit fallback).
@@ -22,7 +22,7 @@ import type { OrchestratorDependencies } from '../../ai/orchestrator.js';
 import type { ToolRegistry } from '../../tools/index.js';
 import type { ConversationStore } from '../conversations.js';
 import type { ConversationContext } from '../../shared/index.js';
-import { handleAutonomously } from '../../ai/autonomous/index.js';
+import { handleAutonomously, understandAutonomously } from '../../ai/autonomous/index.js';
 
 export interface ChatRouteContext {
   orchestrator: OrchestratorDependencies;
@@ -72,6 +72,42 @@ function apology(conversation: ConversationContext, code?: string) {
   };
 }
 
+/** Pure conversational intents the regex engine may handle without touching railway tools. */
+const META_ALWAYS = new Set([
+  'GREETING', 'FAREWELL', 'THANKS', 'PRAISE', 'HELP', 'CAPABILITY_QUERY',
+]);
+const META_IDLE = new Set([
+  ...META_ALWAYS,
+  'AFFIRMATION', 'NEGATION', 'HOLD_PAUSE', 'RESUME', 'GO_BACK', 'START_OVER',
+  'SMALL_TALK', 'NORMAL_CHAT', 'COMPLAINT', 'FRUSTRATION', 'REPEAT_REQUEST',
+]);
+
+function looksLikeRailwayUtterance(message: string): boolean {
+  return (
+    /\b(\d{4,6}|\d{10})\b/.test(message) ||
+    /\b(se|from|to|tak|train|trains|ticket|tickets|pnr|fare|book|booking|live|status|seat|seats|class|station|availability|timetable|cancel|cancelled|wallet|jaana|jana|chahiye)\b/i.test(message) ||
+    /से|ट्रेन|टिकट|किराया|स्टेशन/.test(message)
+  );
+}
+
+/**
+ * Fast-path greetings/thanks through the regex layer. Everything else —
+ * especially journey search, follow-ups, "kal", "haan", station chips —
+ * goes to the NVIDIA AI orchestrator (the ChatGPT-like understander).
+ */
+function shouldUseAutonomousMeta(message: string, conversation: ConversationContext): boolean {
+  if (conversation.stationChoices) return false;
+  if (conversation.lastAskedField) return false;
+  if (conversation.pendingQuestion) return false;
+  if (conversation.pendingDataRoute) return false;
+  if (looksLikeRailwayUtterance(message)) return false;
+
+  const preview = understandAutonomously(message, conversation);
+  if (META_ALWAYS.has(preview.primaryIntent) && preview.requiresNoTools) return true;
+  const idle = !conversation.bookingStage || conversation.bookingStage === 'IDLE';
+  return idle && META_IDLE.has(preview.primaryIntent) && preview.requiresNoTools;
+}
+
 function slotsOf(c: ConversationContext) {
   return {
     origin: c.origin?.code ?? null,
@@ -107,8 +143,8 @@ export async function handleChatRoute(
 
   const conversation = await context.conversations.getOrCreate(conversationId, userId);
 
-  // ── PATH 1: AUTONOMOUS HANDLER (ChatGPT-style handover) ──
-  if (useAutonomous) {
+  // ── PATH 1: meta-only (hi / thanks / bye). Railway → NVIDIA AI. ──
+  if (useAutonomous && shouldUseAutonomousMeta(message, conversation)) {
     try {
       const result = await handleAutonomously(
         { message, conversationId: conversation.id, context: conversation },

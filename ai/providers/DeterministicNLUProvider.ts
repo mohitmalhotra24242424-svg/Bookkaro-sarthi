@@ -686,6 +686,11 @@ export class DeterministicNLUProvider implements AIProvider {
     } else if (isSlotFillerOnly(message)) {
       intent = 'UNKNOWN';
       confidence = 0.7; // slot-filler — orchestrator resolves against pending question
+    } else if (/^(hi|hii+|hello|hey+|namaste|namaskar|yo|hola|salaam|salam)(\s+(ji|bhai|yaar))?[\s!.]*$/i.test(text.trim())
+      || /^(good\s+(morning|evening|afternoon|night))[\s!.]*$/i.test(text.trim())
+      || /^(thanks|thank you|thx|thnx|dhanyavaad|shukriya)[\s!.]*$/i.test(text.trim())) {
+      intent = 'HELP';
+      confidence = 0.95;
     } else if (/\b(weather|mausam|cricket|movie|film|song|gaana|joke|chutkula|politics|share market|stock)\b/i.test(lower)) {
       intent = 'NORMAL_CHAT'; // off-scope small talk — politely declined, no tools
       confidence = 0.9;

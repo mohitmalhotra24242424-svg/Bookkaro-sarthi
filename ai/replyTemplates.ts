@@ -228,8 +228,17 @@ export function cannotDoThatReply(): string {
   return 'Ye main kar nahi sakta — booking confirm ya paise se related kaam server-side safety checks ke through hi honge.';
 }
 
+export function isGreetingMessage(message: string): boolean {
+  const trimmed = message.trim().toLowerCase().replace(/[!.?]+$/g, '').trim();
+  return /^(hi|hii+|hello|hey+|namaste|namaskar|yo|hola|salaam|salam|good morning|good evening|good afternoon|good night)(\s+(ji|bhai|yaar))?$/.test(trimmed);
+}
+
+export function greetingReply(): string {
+  return 'Namaste! 🙏 BookKaro mein aapka swagat hai. Main trains search, live status, fare, availability, PNR aur booking — sab handle karta hoon. Batayein kya chahiye?';
+}
+
 export function rephraseReply(): string {
-  return 'Main samajh nahi paaya — thoda simple shabdon mein bataiye? (jaise: "12014 ka live status", "PNR check karo", "Amritsar se Ludhiana kal")';
+  return 'Main aapki madad ke liye yahan hoon 🚆 — trains, tickets, live status, fare, PNR, booking. Thoda aur clearly batayein kya chahiye? Jaise: "Amritsar se Ludhiana kal", "12014 ka live status", ya "PNR check karo".';
 }
 
 // ── data replies ─────────────────────────────────────────────────────────────

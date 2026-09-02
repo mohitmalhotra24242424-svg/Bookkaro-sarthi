@@ -84,6 +84,8 @@ import {
   availabilityReply,
   askForClass,
   askForField,
+  greetingReply,
+  isGreetingMessage,
   bookingReviewReply,
   bookingsReply,
   cannotDoThatReply,
@@ -1045,7 +1047,7 @@ async function orchestrateSingleTurn(
 
   switch (u.intent) {
     case 'HELP':
-      return finish(state, 'HELP', helpReply(), { usedFallbackNlu: understood.usedFallbackNlu });
+      return finish(state, 'HELP', isGreetingMessage(state.message) ? greetingReply() : helpReply(), { usedFallbackNlu: understood.usedFallbackNlu });
     case 'GENERAL_RAILWAY_QUERY':
       return handleGlossary(state, u, understood.usedFallbackNlu);
     case 'NORMAL_CHAT':
