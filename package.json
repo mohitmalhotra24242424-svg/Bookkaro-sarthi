@@ -1,0 +1,29 @@
+{
+  "name": "bookkaro",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "BookKaro (RAILBOOK) — AI-first railway assistant. Step 1: clean technical foundation only.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-public.mjs",
+    "start": "node dist/api/main.js",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/sql.js": "^1.4.11",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0",
+    "railkit": "^4.1.0",
+    "sql.js": "^1.14.2"
+  }
+}

@@ -1,0 +1,11 @@
+# Secrets must NEVER enter an image layer
+.env
+.env.*
+!.env.example
+node_modules
+dist
+coverage
+.git
+*.zip
+*.log
+.data

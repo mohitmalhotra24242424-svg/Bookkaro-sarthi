@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Privacy — BookKro Sarthi</title>
+<style>
+  :root { --cream:#FBF7EF; --card:#FFFFFF; --ink:#23262E; --muted:#6E7280; --orange:#EE7A2D; --teal:#0F766E; --line:#EAE3D4; }
+  * { box-sizing:border-box; margin:0; }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; background:var(--cream); color:var(--ink); line-height:1.7; }
+  .wrap { width:min(760px, 92vw); margin:0 auto; padding:48px 0 72px; }
+  .brand { display:inline-flex; align-items:center; gap:10px; font-weight:800; font-size:18px; text-decoration:none; color:inherit; }
+  .orb { width:34px; height:34px; border-radius:11px; background:var(--orange); display:grid; place-items:center; font-size:17px; }
+  h1 { font-size:32px; font-weight:850; letter-spacing:-.8px; margin:34px 0 6px; }
+  .upd { color:var(--muted); font-size:13.5px; margin-bottom:26px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:28px 30px; }
+  h2 { font-size:16.5px; margin:22px 0 8px; } h2:first-child { margin-top:0; }
+  p { color:var(--ink); font-size:14.5px; }
+  .muted { color:var(--muted); font-size:13px; margin-top:18px; }
+  a { color:var(--teal); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="brand" href="/"><span class="orb">🚆</span>BookKro Sarthi</a>
+  <h1>Privacy</h1>
+  <div class="upd">Simple language, short page — jaise hona chahiye.</div>
+  <div class="card">
+    <h2>Kya data use hota hai</h2>
+    <p>Aapke chat messages aur journey details (station, date, passengers) — sirf aapka request process karne ke liye. Is page ka chat input seedha assistant ke paas jaata hai.</p>
+    <h2>API keys aur credentials</h2>
+    <p>Saare provider keys sirf secure server par rehte hain — browser, chat ya logs mein kabhi expose nahi hote.</p>
+    <h2>PNR numbers</h2>
+    <p>PNR status check karne ke liye hum aapka PNR number sirf railway data provider ko bhejte hain — store karke advertise nahi karte.</p>
+    <h2>Cookies / tracking</h2>
+    <p>Koi advertising ya tracking nahi. Sirf ek local setting (chat ka server URL) browser mein save hoti hai, jab aap khud set karte ho.</p>
+    <h2>Payments</h2>
+    <p>Abhi koi real payment process nahi hota — booking demo flow hai, explicit confirmation ke saath.</p>
+  </div>
+  <p class="muted">Sawal ho toh chat mein “help” likhein, ya wapas <a href="/">homepage</a> par jaayein.</p>
+</div>
+</body>
+</html>

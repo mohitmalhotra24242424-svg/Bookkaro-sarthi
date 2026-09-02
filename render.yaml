@@ -1,0 +1,67 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# BookKaro (RAILBOOK) — Render Blueprint
+# -----------------------------------------------------------------------------
+# This is the modern, repeatable way to deploy on Render. It defines ONE
+# long-running Web Service. Unlike Vercel serverless (which recycles per request
+# and caps function duration at ~10s on Hobby), Render keeps a single Node
+# process alive, so the real AI gateway calls (~11–22s) are NOT truncated.
+#
+# Two ways to use it:
+#   (A) Dashboard (easiest): New → Blueprint → point at this repo → Render reads
+#       render.yaml automatically. Then fill in the env vars in the dashboard.
+#   (B) CLI:  render blueprint launch  (after `render login`)
+#
+# IMPORTANT: env vars with a `sync: false` value are NOT written into this file.
+# Their real values stay in the Render dashboard (Environment tab) — the correct
+# and secure place. Do NOT put raw API keys in this repo file.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  - type: web
+    # Name shown in the Render dashboard.
+    name: bookkroai
+    runtime: node
+    # Render web services have NO per-request duration cap (unlike Vercel Hobby's
+    # ~10s), so the real AI gateway (11–22s) works even on the free plan.
+    plan: free
+    region: singapore     # closest to users in India (align RailKit/NVIDIA latency)
+    # Build & run are the project's own scripts (tsc build → node dist/api/main.js).
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    # Render sets PORT automatically; our server reads process.env.PORT.
+    #   PORT is provided by Render, do NOT set it here.
+    autoDeploy: true
+
+    healthCheckPath: /api/health
+    # NOTE: the health-check timeout (e.g. 120s) is a service-level setting set
+    # in the Render Dashboard (or via the API); it is not a render.yaml field.
+
+    envVars:
+      # ── Railway data providers (REQUIRED for live train data) ──────────────
+      # RailCore is primary, RailKit is the fallback.
+      # Non-secret config uses `value`; real API keys use `sync: false` (their
+      # values are entered once in the Render dashboard, never kept in this file).
+      - key: RAILWAY_PROVIDER
+        value: RAILCORE
+      - key: RAILCORE_API_KEY
+        sync: false
+      - key: RAILKIT_API_KEY
+        sync: false
+
+      # ── AI gateway (REQUIRED for the real AI understander) ─────────────────
+      # primary  = gpt-oss-20b — the "understand/plan" model
+      # secondary= Nemotron   — fallback model
+      - key: AI_PROVIDER
+        value: nvidia
+      - key: NVIDIA_API_KEY
+        sync: false
+      - key: GPT_OSS_MODEL
+        value: openai/gpt-oss-20b
+      - key: NVIDIA_MODEL
+        value: nvidia/nemotron-3.5-lightning-30b-a3b
+
+      # ── Optional ────────────────────────────────────────────────────────────
+      # Comma-separated list of origins allowed by CORS. Defaults to "*".
+      # Set this if your frontend is hosted on a different domain.
+      - key: CORS_ORIGIN
+        value: "*"

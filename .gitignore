@@ -1,0 +1,30 @@
+# dependencies / build output
+node_modules/
+dist/
+coverage/
+
+# secrets — never commit real credentials (.env.example is the safe template)
+.env
+.env.*
+!.env.example
+
+# logs & os noise
+*.log
+.DS_Store
+.vercel
+.env*
+
+.vercel/
+.env.local
+.npm/
+.cache/
+.local/
+# SQLite conversation memory (runtime data — regenerable, never source)
+.data/
+# talking-hero scratch + sandbox deps (large / regenerable)
+renders/frames/
+tools/*/node_modules/
+
+# python scratch
+__pycache__/
+*.pyc

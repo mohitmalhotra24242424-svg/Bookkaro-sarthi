@@ -1,0 +1,150 @@
+/**
+ * READ DATA-INTENT ROUTE FOLLOW-UP.
+ *
+ * "12053 ki seat availability check krna" → assistant asks the route →
+ * user answers "Amritsar se Ludhiana" (a full route, no train mentioned).
+ *
+ * This must NOT become "samajh nahi paaya": the orchestrator completes the
+ * SAME availability/fare request — keeping the train/class it already had,
+ * resolving both stations, and asking only for whatever is still missing.
+ */
+import { describe, expect, it } from 'vitest';
+import { createHarness, freshContext, run } from './orchestration/harness.js';
+import type { AIProvider, AIUnderstandingInput, AIUnderstandingResult } from '../ai/AIProvider.js';
+import type { AIReplyInput, AIReplyResult } from '../ai/AIProvider.js';
+
+/** Stub AI that proposes a getAvailability tool request (AI-primary tool path). */
+function stubAiAvailabilityRequest(): AIProvider {
+  return {
+    providerId: 'nvidia-stub',
+    async understand(_i: AIUnderstandingInput): Promise<AIUnderstandingResult> {
+      return {
+        intent: 'GET_AVAILABILITY',
+        confidence: 0.85,
+        slots: { originQuery: null, destinationQuery: null, journeyDate: null, dateText: null, passengerCount: null, trainNumber: '12053', secondTrainNumber: null, travelClass: null, pnr: null, resultReference: null, isCorrection: false, mentionedStations: [], glossaryTerm: null },
+        missingFields: [],
+        toolRequest: { tool: 'getAvailability', input: { trainNumber: '12053' }, rationale: 'availability' },
+      };
+    },
+    async generateResponse(_i: AIReplyInput): Promise<AIReplyResult> {
+      return { askForField: null, message: 'n/a' };
+    },
+  };
+}
+
+describe('data-intent route follow-up ("A se B" answers the route question)', () => {
+  it('completes availability by filling both stations, keeping the train', async () => {
+    const harness = createHarness();
+    const t1 = await run(harness, freshContext(), '12053 ki seat availability check krna');
+    expect(t1.intent).toBe('GET_AVAILABILITY');
+    expect(t1.reply).toMatch(/route ke liye/i);
+
+    const t2 = await run(harness, t1.context, 'Amritsar se Ludhiana');
+    // Same request, not UNKNOWN / "samajh nahi paaya".
+    expect(t2.intent).toBe('GET_AVAILABILITY');
+    expect(t2.reply).not.toMatch(/samajh nahi paaya/i);
+    // Both stations resolved.
+    expect(t2.context.origin?.code).toBe('ASR');
+    expect(t2.context.destination?.code).toBe('LDH');
+    // Only the still-missing slot is asked.
+    expect(t2.reply).toMatch(/date/i);
+  });
+
+  it('completes fare the same way (train kept)', async () => {
+    const harness = createHarness();
+    const t1 = await run(harness, freshContext(), '12014 ka fare kitna hai?');
+    expect(t1.intent).toBe('GET_FARE');
+    const t2 = await run(harness, t1.context, 'Amritsar se Ludhiana');
+    expect(t2.intent).toBe('GET_FARE');
+    expect(t2.context.origin?.code).toBe('ASR');
+    expect(t2.context.destination?.code).toBe('LDH');
+  });
+
+  it('does NOT trigger when no route was pending (normal new query)', async () => {
+    const harness = createHarness();
+    const t = await run(harness, freshContext(), 'Amritsar se Ludhiana');
+    // A fresh route with no pending data intent is a journey, not availability.
+    expect(t.intent).not.toBe('GET_AVAILABILITY');
+  });
+
+  it('uses station disambiguation when an endpoint is ambiguous', async () => {
+    const harness = createHarness();
+    // NDLS/DLI/NZM all match "delhi" — must ask, never auto-pick.
+    const t1 = await run(harness, freshContext(), '12014 CC availability batao');
+    const t2 = await run(harness, t1.context, 'Amritsar se Delhi');
+    expect(t2.intent).toBeTruthy();
+    // Delhi is ambiguous → ask which one; do not silently resolve to a single code.
+    expect(t2.context.destination?.code ?? null).not.toBe('NDLS');
+  });
+
+  it('resumes the availability intent after a station disambiguation choice', async () => {
+    const harness = createHarness();
+    const t1 = await run(harness, freshContext(), '12014 CC availability batao');
+    // Amritsar→ASR resolves directly; Delhi is ambiguous → ask.
+    const t2 = await run(harness, t1.context, 'Amritsar se Delhi');
+    expect(t2.context.stationChoices).not.toBeNull();
+    // The user taps NDLS (code) via the chips.
+    const t3 = await run(harness, t2.context, 'NDLS');
+    // Still availability, destination now NDLS, only the (missing) date asked.
+    expect(t3.intent).toBe('GET_AVAILABILITY');
+    expect(t3.context.destination?.code).toBe('NDLS');
+    expect(t3.reply).toMatch(/date/i);
+  });
+
+  it('route follow-up completes on the AI-requested-tool path (getAvailability)', async () => {
+    const harness = createHarness();
+    // AI-primary: the model proposes getAvailability (no route) → asks route.
+    const t1 = await run(harness, freshContext(), '12053 ki seat availability check krna', { ai: stubAiAvailabilityRequest() });
+    expect(t1.intent).toBe('GET_AVAILABILITY');
+    expect(t1.reply).toMatch(/route ke liye/i);
+    expect(t1.context.pendingDataRoute?.trainNumber).toBe('12053');
+    // User answers the route → completes the SAME availability request.
+    const t2 = await run(harness, t1.context, 'Amritsar se Ludhiana', { ai: stubAiAvailabilityRequest() });
+    expect(t2.intent).toBe('GET_AVAILABILITY');
+    expect(t2.context.origin?.code).toBe('ASR');
+    expect(t2.context.destination?.code).toBe('LDH');
+    expect(t2.reply).toMatch(/date/i);
+  });
+
+  it('resolves a route supplied INLINE in the same availability message ("asr jn se ndls")', async () => {
+    const harness = createHarness();
+    const t = await run(harness, freshContext(), '12014 ki seat availability check karna asr jn se ndls');
+    expect(t.intent).toBe('GET_AVAILABILITY');
+    // The jn suffix must resolve to ASR, not become a partial token.
+    expect(t.context.origin?.code).toBe('ASR');
+    expect(t.context.destination?.code).toBe('NDLS');
+    // It should NOT ask for the route again — only the still-missing date.
+    expect(t.reply).not.toMatch(/route ke liye/i);
+    expect(t.reply).toMatch(/date/i);
+  });
+
+  it('resolves an inline route written as full station names', async () => {
+    const harness = createHarness();
+    const t = await run(harness, freshContext(), '12014 ki seat availability check karna Amritsar se Ludhiana');
+    expect(t.context.origin?.code).toBe('ASR');
+    expect(t.context.destination?.code).toBe('LDH');
+    expect(t.reply).not.toMatch(/route ke liye/i);
+  });
+
+  it('stays in availability across a date follow-up (does not start a train search)', async () => {
+    const harness = createHarness();
+    const t1 = await run(harness, freshContext(), '12014 ki seat availability check karna asr jn se ndls');
+    expect(t1.context.origin?.code).toBe('ASR');
+    expect(t1.context.destination?.code).toBe('NDLS');
+    expect(t1.reply).toMatch(/date/i);
+    // Giving the date must resume availability, NOT become BOOK_TRAIN/search.
+    const t2 = await run(harness, t1.context, 'kal ke liye');
+    expect(t2.intent).toBe('GET_AVAILABILITY');
+    expect(t2.context.origin?.code).toBe('ASR');
+    expect(t2.context.destination?.code).toBe('NDLS');
+    expect(t2.reply).not.toMatch(/sabse|mili|kaunsi leni|search/i);
+  });
+
+  it('does not treat the verb "krna" as a station when no route is given', async () => {
+    const harness = createHarness();
+    const t1 = await run(harness, freshContext(), '12014 ki seat availability check krna');
+    expect(t1.intent).toBe('GET_AVAILABILITY');
+    // No spoofed station from the verb; still asks for the route.
+    expect(t1.reply).toMatch(/route ke liye/i);
+  });
+});

@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "app/**", "use": "@vercel/static" },
+    { "src": "api/index.ts", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api?bkpath=/api/$1" },
+    { "src": "/", "dest": "/app/index.html" },
+    { "src": "/chat", "dest": "/app/chat.html" },
+    { "src": "/privacy", "dest": "/app/privacy.html" },
+    { "src": "/terms", "dest": "/app/terms.html" },
+    { "src": "/(.*)", "dest": "/app/$1" }
+  ]
+}

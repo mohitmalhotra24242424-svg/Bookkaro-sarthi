@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BookKro Sarthi — Homepage Preview</title>
+<style>
+  :root{
+    --orange:#F56B2A;
+    --orange-2:#F97332;
+    --navy:#142B3D;
+    --navy-2:#102A43;
+    --cream:#FFF8EF;
+    --cream-2:#FFF9F2;
+    --off-white:#FCFAF6;
+    --teal:#24A88F;
+    --gold:#F3C744;
+    --coral:#F26B4A;
+    --border:#E8E1D8;
+    --grey:#8A9298;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{
+    min-height:100vh;
+    background:
+      radial-gradient(1200px 600px at 50% -10%, #fffdf9 0%, var(--off-white) 60%),
+      var(--off-white);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,Roboto,Helvetica,Arial,sans-serif;
+    padding:40px 20px;
+  }
+
+  /* ===== Phone frame ===== */
+  .phone{
+    width:420px;
+    background:#fff;
+    border-radius:32px;
+    box-shadow:
+      0 2px 6px rgba(20,43,61,.06),
+      0 20px 50px rgba(20,43,61,.14),
+      0 40px 90px rgba(20,43,61,.08);
+    overflow:hidden;
+    border:1px solid var(--border);
+  }
+
+  /* ===== Header ===== */
+  .header{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:16px 18px;
+    background:#fff;
+    border-bottom:1px solid var(--border);
+  }
+  .app-icon{
+    width:46px;height:46px;
+    border-radius:13px;
+    background:linear-gradient(135deg,var(--orange-2),var(--orange));
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 6px 14px rgba(245,107,42,.32);
+    flex:none;
+  }
+  .app-icon svg{width:26px;height:26px;}
+  .brand{line-height:1.15;}
+  .brand .name{
+    font-weight:800;
+    color:var(--navy);
+    font-size:17px;
+    letter-spacing:-.2px;
+  }
+  .brand .status{
+    display:flex;align-items:center;gap:5px;
+    color:var(--grey);
+    font-size:12px;
+    margin-top:2px;
+  }
+  .dot{
+    width:7px;height:7px;border-radius:50%;
+    background:var(--teal);
+    box-shadow:0 0 0 3px rgba(36,168,143,.15);
+  }
+  .menu{
+    margin-left:auto;
+    color:#3d4a54;
+    display:flex;flex-direction:column;gap:3.5px;
+    padding:6px 2px;
+  }
+  .menu span{width:4px;height:4px;border-radius:50%;background:#3d4a54;}
+
+  /* ===== Conversation area ===== */
+  .conversation{
+    position:relative;
+    background:var(--cream);
+    padding:26px 22px 24px;
+    overflow:hidden;
+  }
+  .scene{
+    position:absolute;inset:0;pointer-events:none;opacity:.5;
+  }
+  .sun{position:absolute;top:20px;right:24px;width:64px;height:64px;border-radius:50%;background:rgba(243,199,68,.28);}
+  .cloud{position:absolute;background:rgba(255,255,255,.75);border-radius:999px;}
+  .cloud.a{top:26px;left:18%;width:70px;height:22px;}
+  .cloud.b{top:54px;right:12%;width:90px;height:24px;}
+  .cloud.c{top:16px;right:34%;width:54px;height:18px;}
+  .hills{position:absolute;bottom:-4px;left:0;right:0;height:60px;
+    background:linear-gradient(180deg,rgba(36,168,143,.08),rgba(36,168,143,0));}
+  .train{
+    position:absolute;bottom:40px;left:-90px;
+    animation:roll 22s linear infinite;
+  }
+  @keyframes roll{to{transform:translateX(620px);}}
+  .bird{position:absolute;color:rgba(20,43,61,.18);font-size:13px;transform:scale(.9);}
+  .bird.b1{top:40px;right:30%;}
+  .bird.b2{top:30px;right:22%;}
+  .bird.b3{top:52px;right:40%;}
+
+  .chat-row{
+    position:relative;
+    display:flex;
+    align-items:flex-start;
+    gap:14px;
+  }
+
+  /* Avatar */
+  .avatar{flex:none;width:104px;margin-top:6px;}
+  .avatar svg{width:100%;height:auto;display:block;filter:drop-shadow(0 8px 14px rgba(20,43,61,.12));}
+
+  /* Speech bubble */
+  .bubble-col{flex:1;min-width:0;}
+  .bubble-label{
+    font-size:11px;color:var(--grey);
+    letter-spacing:.3px;margin:0 0 6px 14px;
+  }
+  .bubble{
+    background:#fff;
+    border-radius:20px;
+    border-top-left-radius:6px;
+    padding:18px 20px;
+    box-shadow:0 10px 26px rgba(20,43,61,.10), 0 2px 4px rgba(20,43,61,.04);
+    font-size:16px;
+    line-height:1.5;
+    color:var(--navy);
+    font-weight:600;
+    display:flex;flex-wrap:wrap;align-items:baseline;
+    column-gap:.55ch;row-gap:2px;
+  }
+  .bubble .line{display:inline;}
+  .bubble .hl{color:var(--orange);font-weight:800;}
+  .bubble .big{font-size:19px;}
+
+  /* ===== Quick actions ===== */
+  .actions{
+    display:flex;
+    gap:12px;
+    padding:20px 22px;
+    background:#fff;
+    border-top:1px solid var(--border);
+  }
+  .action{
+    flex:1;
+    background:#fff;
+    border:1px solid var(--border);
+    border-radius:18px;
+    padding:14px 8px 12px;
+    display:flex;flex-direction:column;align-items:center;gap:9px;
+    box-shadow:0 4px 12px rgba(20,43,61,.05);
+    transition:transform .15s ease, box-shadow .15s ease;
+    cursor:pointer;
+  }
+  .action:hover{transform:translateY(-2px);box-shadow:0 8px 18px rgba(20,43,61,.10);}
+  .action .ico{
+    width:34px;height:34px;border-radius:11px;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .action .ico svg{width:19px;height:19px;}
+  .action .lbl{font-size:12.5px;font-weight:800;color:var(--navy);text-align:center;}
+  .ico.train{background:rgba(36,168,143,.14);}
+  .ico.live{background:rgba(242,107,74,.14);}
+  .ico.pnr{background:rgba(243,199,68,.22);}
+
+  /* ===== Input bar ===== */
+  .input-wrap{padding:6px 22px 20px;background:#fff;}
+  .input-bar{
+    display:flex;align-items:center;gap:10px;
+    background:#fff;
+    border:1px solid var(--border);
+    border-radius:999px;
+    padding:8px 10px 8px 8px;
+    box-shadow:0 6px 16px rgba(20,43,61,.06);
+  }
+  .mic{
+    width:40px;height:40px;border-radius:50%;
+    border:1.6px solid var(--orange);
+    background:#fff;
+    display:flex;align-items:center;justify-content:center;
+    flex:none;cursor:pointer;
+  }
+  .mic svg{width:18px;height:18px;}
+  .placeholder{
+    flex:1;
+    color:var(--grey);
+    font-size:14px;
+    padding-left:4px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .send{
+    width:40px;height:40px;border-radius:50%;
+    background:linear-gradient(135deg,var(--orange-2),var(--orange));
+    display:flex;align-items:center;justify-content:center;
+    flex:none;cursor:pointer;
+    box-shadow:0 6px 14px rgba(245,107,42,.32);
+  }
+  .send svg{width:18px;height:18px;}
+  .trust{
+    display:flex;align-items:center;justify-content:center;gap:6px;
+    margin-top:12px;
+    color:var(--grey);
+    font-size:11.5px;
+  }
+  .trust svg{width:12px;height:12px;opacity:.8;}
+</style>
+</head>
+<body>
+
+  <div class="phone">
+
+    <!-- Header -->
+    <div class="header">
+      <div class="app-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none">
+          <rect x="3" y="3" width="7" height="7" rx="1.5" fill="#fff"/>
+          <rect x="14" y="3" width="7" height="7" rx="1.5" fill="#fff"/>
+          <rect x="3" y="14" width="7" height="7" rx="1.5" fill="#fff"/>
+          <rect x="14" y="14" width="7" height="7" rx="1.5" fill="#fff"/>
+          <path d="M3 6.5h18M3 17.5h18" stroke="#F56B2A" stroke-width="1.2"/>
+        </svg>
+      </div>
+      <div class="brand">
+        <div class="name">BookKro Sarthi</div>
+        <div class="status"><span class="dot"></span>Online</div>
+      </div>
+      <div class="menu" aria-hidden="true"><span></span><span></span><span></span></div>
+    </div>
+
+    <!-- Conversation area -->
+    <div class="conversation">
+      <div class="scene" aria-hidden="true">
+        <div class="sun"></div>
+        <div class="cloud a"></div>
+        <div class="cloud b"></div>
+        <div class="cloud c"></div>
+        <div class="hills"></div>
+        <span class="bird b1">⌄</span>
+        <span class="bird b2">⌄</span>
+        <span class="bird b3">⌄</span>
+        <svg class="train" width="150" height="34" viewBox="0 0 150 34" fill="none">
+          <rect x="6" y="12" width="118" height="16" rx="6" fill="rgba(20,43,61,.10)"/>
+          <rect x="18" y="4" width="26" height="10" rx="3" fill="rgba(20,43,61,.10)"/>
+          <rect x="70" y="6" width="20" height="8" rx="3" fill="rgba(20,43,61,.10)"/>
+          <circle cx="28" cy="30" r="5" fill="rgba(20,43,61,.12)"/>
+          <circle cx="58" cy="30" r="5" fill="rgba(20,43,61,.12)"/>
+          <circle cx="104" cy="30" r="5" fill="rgba(20,43,61,.12)"/>
+        </svg>
+      </div>
+
+      <div class="chat-row">
+        <!-- Avatar -->
+        <div class="avatar" aria-hidden="true">
+          <svg viewBox="0 0 120 150" fill="none">
+            <!-- soft backdrop circle -->
+            <circle cx="60" cy="66" r="58" fill="#fff" opacity="0.55"/>
+            <!-- neck -->
+            <rect x="52" y="78" width="16" height="18" rx="7" fill="#E7B08C"/>
+            <!-- shoulders / uniform -->
+            <path d="M28 150 C30 118 42 104 60 104 C78 104 90 118 92 150 Z" fill="#F4E9D8"/>
+            <path d="M28 150 C30 118 42 104 60 104 C78 104 90 118 92 150 Z" fill="none"/>
+            <!-- orange stole -->
+            <path d="M40 116 C52 124 68 124 80 116 L82 126 C66 134 52 134 38 126 Z" fill="#F56B2A"/>
+            <path d="M60 104 L60 150" stroke="#F56B2A" stroke-width="7" stroke-linecap="round" opacity="0.9"/>
+            <!-- BookKro Sarthi tag on uniform -->
+            <rect x="49" y="136" width="22" height="7" rx="3" fill="#F56B2A" opacity="0.9"/>
+            <!-- hair back / bun -->
+            <circle cx="60" cy="30" r="29" fill="#3A2A22"/>
+            <ellipse cx="60" cy="24" rx="27" ry="25" fill="#462F26"/>
+            <!-- face -->
+            <ellipse cx="60" cy="46" rx="19" ry="21" fill="#F2C4A0"/>
+            <!-- fringe -->
+            <path d="M41 44 C40 26 52 16 66 16 C78 16 82 26 80 40 C76 30 66 26 58 28 C52 30 46 38 41 44 Z" fill="#462F26"/>
+            <!-- bun -->
+            <circle cx="60" cy="14" r="11" fill="#3A2A22"/>
+            <path d="M52 18 C50 10 56 4 64 4" stroke="#3A2A22" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <!-- eyes -->
+            <ellipse cx="52" cy="46" rx="3" ry="3.6" fill="#2B1D16"/>
+            <ellipse cx="68" cy="46" rx="3" ry="3.6" fill="#2B1D16"/>
+            <circle cx="53" cy="45" r="1" fill="#fff"/>
+            <circle cx="69" cy="45" r="1" fill="#fff"/>
+            <!-- brows -->
+            <path d="M46 39 C49 36.5 54 36.5 57 38" stroke="#3A2A22" stroke-width="1.6" stroke-linecap="round"/>
+            <path d="M63 38 C66 36.5 71 36.5 74 39" stroke="#3A2A22" stroke-width="1.6" stroke-linecap="round"/>
+            <!-- nose -->
+            <path d="M60 48 C59 51 58.6 52.5 58.4 53" stroke="#D99A72" stroke-width="1.4" stroke-linecap="round"/>
+            <!-- smile -->
+            <path d="M53 56 C56 60 64 60 67 56" stroke="#B96A4E" stroke-width="2" stroke-linecap="round" fill="none"/>
+            <!-- blush -->
+            <ellipse cx="46" cy="53" rx="3.4" ry="2" fill="#F0A48E" opacity="0.55"/>
+            <ellipse cx="74" cy="53" rx="3.4" ry="2" fill="#F0A48E" opacity="0.55"/>
+            <!-- earrings -->
+            <circle cx="40.5" cy="52" r="1.8" fill="#F3C744"/>
+            <circle cx="79.5" cy="52" r="1.8" fill="#F3C744"/>
+          </svg>
+        </div>
+
+        <!-- Bubble -->
+        <div class="bubble-col">
+          <div class="bubble-label">BookKro Sarthi</div>
+          <div class="bubble">
+            <span class="line big"><span class="hl">Namaste!</span> 🙏</span>
+            <span class="line">Main <span class="hl">BookKro Sarthi</span> hoon.</span>
+            <span class="line">Bataiye, main aapki kaise madad kar sakti hoon?</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick actions -->
+    <div class="actions">
+      <div class="action">
+        <div class="ico train">
+          <svg viewBox="0 0 24 24" fill="none">
+            <rect x="4" y="3" width="16" height="12" rx="2.5" stroke="#24A88F" stroke-width="1.8"/>
+            <path d="M4 9h16" stroke="#24A88F" stroke-width="1.8"/>
+            <circle cx="8" cy="17.5" r="1.7" fill="#24A88F"/>
+            <circle cx="16" cy="17.5" r="1.7" fill="#24A88F"/>
+            <path d="M8 15v1.5M16 15v1.5" stroke="#24A88F" stroke-width="1.8"/>
+          </svg>
+        </div>
+        <div class="lbl">Train search</div>
+      </div>
+      <div class="action">
+        <div class="ico live">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M12 21s6-5.1 6-10a6 6 0 1 0-12 0c0 4.9 6 10 6 10Z" stroke="#F26B4A" stroke-width="1.8"/>
+            <circle cx="12" cy="11" r="2.3" stroke="#F26B4A" stroke-width="1.8"/>
+          </svg>
+        </div>
+        <div class="lbl">Live status</div>
+      </div>
+      <div class="action">
+        <div class="ico pnr">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8Z" stroke="#D9A412" stroke-width="1.8"/>
+            <path d="M3 11h18" stroke="#D9A412" stroke-width="1.8" stroke-dasharray="2.5 2.5"/>
+            <path d="M9 6v3M15 6v3M9 14.5v1.5M15 14.5v1.5" stroke="#D9A412" stroke-width="1.8"/>
+          </svg>
+        </div>
+        <div class="lbl">Seat availability</div>
+      </div>
+    </div>
+
+    <!-- Input bar -->
+    <div class="input-wrap">
+      <div class="input-bar">
+        <div class="mic" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <rect x="9" y="3" width="6" height="12" rx="3" stroke="#F56B2A" stroke-width="1.8"/>
+            <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0" stroke="#F56B2A" stroke-width="1.8" stroke-linecap="round"/>
+            <path d="M12 18v3M9 21h6" stroke="#F56B2A" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="placeholder">Type your message...</div>
+        <div class="send" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M21 3 10.5 13.5" stroke="#fff" stroke-width="1.9" stroke-linecap="round"/>
+            <path d="M21 3 14 21l-3.5-7.5L3 10l18-7Z" stroke="#fff" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </div>
+      </div>
+      <div class="trust">
+        <svg viewBox="0 0 24 24" fill="none">
+          <rect x="5" y="10" width="14" height="10" rx="2" stroke="#8A9298" stroke-width="1.8"/>
+          <path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="#8A9298" stroke-width="1.8"/>
+        </svg>
+        Your conversations are safe with BookKro Sarthi
+      </div>
+    </div>
+
+  </div>
+
+</body>
+</html>

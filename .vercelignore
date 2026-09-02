@@ -1,0 +1,12 @@
+node_modules
+coverage
+.git
+.npm
+tests
+uploads
+*.zip
+*.log
+STEP8_REAL_API_REPORT.md
+.env
+.env.*
+!.env.example

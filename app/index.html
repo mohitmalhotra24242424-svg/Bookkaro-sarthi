@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#FCFAF6" />
+  <title>BookKaro Sarthi</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23F56B2A'/%3E%3Cpath fill='white' d='M8 10.2c0-1.5 1.2-2.7 2.7-2.7h10.6c1.5 0 2.7 1.2 2.7 2.7v8.1c0 1.5-1.2 2.7-2.7 2.7h-1.1v1.4h1.6v1.6H9.5v-1.6h1.6v-1.4H10.7C9.2 21 8 19.8 8 18.3v-8.1zm3.2 1.1v3.4h3.6v-3.4H11.2zm5.2 0v3.4h3.6v-3.4h-3.6zM11.2 22.4h1.6v-1.4h-1.6v1.4zm8 0h1.6v-1.4h-1.6v1.4z'/%3E%3C/svg%3E" />
+  <style>
+    @font-face {
+      font-family: "Plus Jakarta Sans";
+      src: url("assets/fonts/PlusJakartaSans-Variable.ttf") format("truetype");
+      font-weight: 200 800;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    :root {
+      --orange: #F56B2A;
+      --orange-alt: #F97332;
+      --navy: #142B3D;
+      --navy-alt: #102A43;
+      --cream: #FFF8EF;
+      --cream-alt: #FFF9F2;
+      --offwhite: #FCFAF6;
+      --teal: #24A88F;
+      --teal-alt: #159889;
+      --gold: #F3C744;
+      --coral: #F26B4A;
+      --border: #E8E1D8;
+      --border-alt: #E6EDF2;
+      --muted: #8A9298;
+      --green: #1FA971;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+    html, body {
+      height: 100%;
+      background: #e8dfd2;
+      color: var(--navy);
+      font-family: "Plus Jakarta Sans", "Noto Sans", ui-sans-serif, system-ui, sans-serif;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button, input { font-family: inherit; }
+
+    .stage {
+      min-height: 100%;
+      min-height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      background:
+        radial-gradient(900px 420px at 50% -10%, rgba(255, 248, 239, 0.9), transparent 60%),
+        radial-gradient(700px 380px at 80% 110%, rgba(245, 107, 42, 0.08), transparent 50%),
+        #e7ddd0;
+    }
+
+    .device {
+      position: relative;
+      width: min(calc(100vw - 36px), calc((100dvh - 36px) * 9 / 16));
+      aspect-ratio: 9 / 16;
+      padding: 9px;
+      border-radius: 42px;
+      background: linear-gradient(180deg, #24384a, #142B3D 40%, #0f2230);
+      box-shadow:
+        0 40px 80px rgba(20, 43, 61, 0.28),
+        0 2px 0 rgba(255,255,255,0.18) inset;
+    }
+
+    .phone {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      border-radius: 34px;
+      background: var(--offwhite);
+      container-type: inline-size;
+      container-name: phone;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ——— Header ——— */
+    .header {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 2.4cqw;
+      padding: 3.1cqw 4.4cqw 2.8cqw;
+      background: #fff;
+      border-bottom: 1px solid rgba(232, 225, 216, 0.95);
+    }
+
+    .brand-block {
+      display: flex;
+      align-items: center;
+      gap: 2.6cqw;
+      min-width: 0;
+    }
+
+    .app-icon {
+      width: 10.6cqw;
+      height: 10.6cqw;
+      border-radius: 2.6cqw;
+      background: var(--orange);
+      display: grid;
+      place-items: center;
+      box-shadow: 0 6px 14px rgba(245, 107, 42, 0.28);
+      flex-shrink: 0;
+    }
+
+    .app-icon svg { width: 62%; height: 62%; }
+
+    .brand-copy { min-width: 0; }
+
+    .brand-name {
+      font-size: clamp(16px, 4.05cqw, 44px);
+      font-weight: 800;
+      letter-spacing: -0.035em;
+      color: var(--navy);
+      line-height: 1.15;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 1.3cqw;
+      margin-top: 0.55cqw;
+      font-size: clamp(11px, 2.7cqw, 28px);
+      font-weight: 500;
+      color: var(--muted);
+      letter-spacing: 0.01em;
+    }
+
+    .dot {
+      width: 1.7cqw;
+      height: 1.7cqw;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 0 rgba(31, 169, 113, 0.55);
+      animation: pulse 2.2s ease-out infinite;
+    }
+
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(31, 169, 113, 0.5); }
+      70% { box-shadow: 0 0 0 1.6cqw rgba(31, 169, 113, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(31, 169, 113, 0); }
+    }
+
+    .menu-btn {
+      width: 8.6cqw;
+      height: 8.6cqw;
+      border: 0;
+      background: transparent;
+      color: #4d5963;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .menu-btn:active { background: rgba(20, 43, 61, 0.05); }
+    .menu-btn svg { width: 5.4cqw; height: 5.4cqw; }
+
+    /* ——— Hero / conversation ——— */
+    .hero {
+      position: relative;
+      flex: 1 1 auto;
+      margin: 3cqw 3.6cqw 0;
+      border-radius: 5.4cqw;
+      background: var(--cream);
+      overflow: hidden;
+      min-height: 0;
+      box-shadow: inset 0 0 0 1px rgba(232, 225, 216, 0.55);
+    }
+
+    .hero-bg {
+      position: absolute;
+      inset: auto -6% -4% 28%;
+      height: 78%;
+      background:
+        url("assets/railway-bg.png") 58% 46% / cover no-repeat;
+      opacity: 0.5;
+      pointer-events: none;
+      -webkit-mask-image: linear-gradient(90deg, transparent 0%, rgba(0,0,0,.85) 28%, #000 70%),
+                          linear-gradient(180deg, transparent 0%, #000 28%, #000 78%, transparent 100%);
+      -webkit-mask-composite: destination-in;
+              mask-image: linear-gradient(90deg, transparent 0%, rgba(0,0,0,.85) 28%, #000 70%),
+                          linear-gradient(180deg, transparent 0%, #000 28%, #000 78%, transparent 100%);
+      mask-composite: intersect;
+    }
+
+    .hero-wash {
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(90deg, rgba(255,248,239,0.12) 0%, transparent 48%, rgba(255,248,239,0.2) 100%),
+        linear-gradient(180deg, rgba(255,248,239,0.42), transparent 32%);
+      pointer-events: none;
+    }
+
+    .hero-inner {
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .avatar-col {
+      flex: 1 1 auto;
+      width: 100%;
+      min-height: 0;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      padding: 1.2cqw 0 0;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .avatar-col img {
+      height: 100%;
+      width: auto;
+      max-width: 62%;
+      object-fit: contain;
+      object-position: center bottom;
+      user-select: none;
+      animation: fadein 0.7s ease both;
+      filter: drop-shadow(0 18px 28px rgba(20, 43, 61, 0.16));
+    }
+
+    .bubble-col {
+      position: relative;
+      flex: 0 0 auto;
+      width: auto;
+      transform: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      padding: 1.2cqw 3.4cqw 3.2cqw;
+      z-index: 2;
+    }
+
+    .who {
+      font-size: clamp(10px, 2.45cqw, 26px);
+      font-weight: 600;
+      color: var(--muted);
+      letter-spacing: 0.01em;
+      margin: 0 0 1.1cqw 0;
+      text-align: center;
+    }
+
+    .bubble {
+      background: #fff;
+      border-radius: 5.2cqw;
+      padding: 2.6cqw 3.4cqw 2.8cqw;
+      box-shadow:
+        0 14px 32px rgba(20, 43, 61, 0.08),
+        0 2px 6px rgba(20, 43, 61, 0.04);
+      animation: rise 0.55s ease 0.12s both;
+    }
+
+    .msg {
+      font-size: clamp(13px, 2.65cqw, 28px);
+      line-height: 1.45;
+      font-weight: 600;
+      color: var(--navy);
+      letter-spacing: -0.02em;
+    }
+
+    .msg .line {
+      display: block;
+      white-space: nowrap;
+    }
+
+    .emoji {
+      font-family: "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+      font-weight: 400;
+      font-style: normal;
+      font-size: 1.05em;
+    }
+
+    .msg .accent {
+      color: var(--orange);
+      font-weight: 800;
+    }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: none; }
+    }
+    @keyframes fadein {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: none; }
+    }
+
+    /* ——— Quick actions ——— */
+    .actions {
+      flex: 0 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2.4cqw;
+      padding: 3.1cqw 3.6cqw 0;
+    }
+
+    .action {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 4.4cqw;
+      padding: 3.4cqw 3cqw 3.3cqw;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 2cqw;
+      cursor: pointer;
+      text-align: left;
+      box-shadow: 0 8px 18px rgba(20, 43, 61, 0.045);
+      min-height: 20.5cqw;
+      transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    }
+
+    .action:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 24px rgba(20, 43, 61, 0.07);
+    }
+
+    .action:active {
+      transform: translateY(0) scale(0.985);
+    }
+
+    .action-icon {
+      width: 10.2cqw;
+      height: 10.2cqw;
+      border-radius: 2.9cqw;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+    }
+
+    .action-icon svg { width: 54%; height: 54%; display: block; }
+
+    .action-icon.teal { background: rgba(36, 168, 143, 0.14); color: var(--teal); }
+    .action-icon.coral { background: rgba(242, 107, 74, 0.14); color: var(--coral); }
+    .action-icon.gold { background: rgba(243, 199, 68, 0.22); color: #d9a40e; }
+    .action-icon.ask {
+      background: linear-gradient(135deg, rgba(36, 168, 143, 0.16), rgba(245, 107, 42, 0.12));
+      color: var(--navy);
+    }
+
+    .action-label {
+      font-size: clamp(13px, 3.25cqw, 34px);
+      font-weight: 800;
+      color: var(--navy);
+      letter-spacing: -0.03em;
+      line-height: 1.2;
+    }
+
+    /* ——— Composer ——— */
+    .composer-wrap {
+      flex: 0 0 auto;
+      padding: 3cqw 3.6cqw 0;
+    }
+
+    .composer {
+      display: flex;
+      align-items: center;
+      gap: 2cqw;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 1.15cqw 1.2cqw 1.15cqw 1.3cqw;
+      box-shadow: 0 10px 28px rgba(20, 43, 61, 0.06);
+      min-height: 13.2cqw;
+    }
+
+    .composer:focus-within {
+      border-color: rgba(245, 107, 42, 0.45);
+      box-shadow:
+        0 10px 28px rgba(20, 43, 61, 0.06),
+        0 0 0 3px rgba(245, 107, 42, 0.12);
+    }
+
+    .mic, .send {
+      width: 10.2cqw;
+      height: 10.2cqw;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      flex-shrink: 0;
+      border: 0;
+    }
+
+    .mic {
+      background: #fff;
+      color: var(--orange);
+      box-shadow: inset 0 0 0 1.6px var(--orange);
+    }
+    .mic svg { width: 46%; height: 46%; }
+    .mic.listening {
+      background: rgba(245, 107, 42, 0.1);
+      animation: pulse 1.2s ease-out infinite;
+    }
+
+    .send {
+      background: var(--orange);
+      color: #fff;
+      box-shadow: 0 8px 16px rgba(245, 107, 42, 0.32);
+    }
+    .send svg { width: 48%; height: 48%; margin-left: 0.3cqw; }
+    .send:active { transform: scale(0.96); }
+
+    .composer input {
+      flex: 1;
+      min-width: 0;
+      border: 0;
+      outline: none;
+      background: transparent;
+      font-size: max(16px, 3.35cqw);
+      font-weight: 500;
+      color: var(--navy);
+      letter-spacing: -0.015em;
+    }
+
+    .composer input::placeholder { color: var(--muted); font-weight: 500; }
+
+    /* ——— Privacy ——— */
+    .privacy {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1.2cqw;
+      padding: 2.3cqw 4cqw 1.6cqw;
+      color: var(--muted);
+      font-size: 2.4cqw;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+    }
+
+    .privacy svg {
+      width: 2.8cqw;
+      height: 2.8cqw;
+      flex-shrink: 0;
+      opacity: 0.85;
+    }
+
+    .home-bar {
+      flex: 0 0 auto;
+      display: flex;
+      justify-content: center;
+      padding: 0.4cqw 0 2.4cqw;
+    }
+
+    .home-bar span {
+      width: 28cqw;
+      height: 1.05cqw;
+      border-radius: 999px;
+      background: rgba(20, 43, 61, 0.18);
+    }
+
+    /* Menu popover */
+    .menu-sheet {
+      position: absolute;
+      top: 16cqw;
+      right: 4cqw;
+      width: 48cqw;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 3.6cqw;
+      box-shadow: 0 18px 40px rgba(20, 43, 61, 0.14);
+      padding: 1.4cqw;
+      display: none;
+      z-index: 20;
+      overflow: hidden;
+    }
+    .menu-sheet.open { display: block; animation: rise 0.18s ease both; }
+    .menu-sheet button {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      text-align: left;
+      padding: 2.8cqw 2.6cqw;
+      font-size: 3.2cqw;
+      font-weight: 600;
+      color: var(--navy);
+      border-radius: 2.4cqw;
+      cursor: pointer;
+    }
+    .menu-sheet button:hover { background: var(--cream); }
+
+    .toast {
+      position: absolute;
+      left: 50%;
+      bottom: 28cqw;
+      transform: translateX(-50%) translateY(8px);
+      background: var(--navy);
+      color: #fff;
+      font-size: 2.8cqw;
+      font-weight: 600;
+      padding: 2.2cqw 4cqw;
+      border-radius: 999px;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 30;
+      white-space: nowrap;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+
+    @media (max-width: 640px) {
+      html, body { background: var(--offwhite); }
+      .stage { padding: 0; min-height: 100dvh; background: var(--offwhite); }
+      .device {
+        width: 100%;
+        height: 100dvh;
+        aspect-ratio: auto;
+        padding: 0;
+        border-radius: 0;
+        box-shadow: none;
+        background: none;
+      }
+      .phone { border-radius: 0; }
+      .msg .line { white-space: nowrap; }
+    }
+    @media (max-width: 400px) {
+      .msg .line { white-space: normal; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation: none !important;
+        transition: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="stage">
+    <div class="device">
+      <div class="phone" id="app">
+        <header class="header">
+          <div class="brand-block">
+            <div class="app-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M7.2 5.2h9.6A2.7 2.7 0 0 1 19.5 7.9v7.4a2.7 2.7 0 0 1-2.7 2.7h-1.05v1.15h1.45v1.35H6.8V19.15h1.45V18H7.2A2.7 2.7 0 0 1 4.5 15.3V7.9A2.7 2.7 0 0 1 7.2 5.2Z" fill="white"/>
+                <rect x="7.35" y="8.05" width="4.05" height="3.15" rx="0.7" fill="#F56B2A"/>
+                <rect x="12.6" y="8.05" width="4.05" height="3.15" rx="0.7" fill="#F56B2A"/>
+                <circle cx="8.35" cy="14.85" r="0.95" fill="#F56B2A"/>
+                <circle cx="15.65" cy="14.85" r="0.95" fill="#F56B2A"/>
+              </svg>
+            </div>
+            <div class="brand-copy">
+              <div class="brand-name">BookKaro Sarthi</div>
+              <div class="status"><span class="dot" aria-hidden="true"></span> Online</div>
+            </div>
+          </div>
+          <button class="menu-btn" id="menuBtn" aria-label="More options">
+            <svg viewBox="0 0 24 24" fill="#5A6570">
+              <circle cx="12" cy="5" r="1.7"/>
+              <circle cx="12" cy="12" r="1.7"/>
+              <circle cx="12" cy="19" r="1.7"/>
+            </svg>
+          </button>
+        </header>
+
+        <section class="hero" aria-label="AI assistant welcome">
+          <div class="hero-bg" aria-hidden="true"></div>
+          <div class="hero-wash" aria-hidden="true"></div>
+          <div class="hero-inner">
+            <div class="avatar-col">
+              <img src="assets/assistant-cut.png" alt="BookKaro Sarthi, your railway travel assistant" />
+            </div>
+            <div class="bubble-col">
+              <div class="who">BookKaro Sarthi</div>
+              <div class="bubble">
+                <p class="msg">
+                  <span class="line"><span class="accent">Namaste!</span> <span class="emoji">🙏</span> Main <span class="accent">BookKaro Sarthi</span> hoon.</span>
+                  <span class="line">Batayie, Main apki kaise madad kar sakti hoon?</span>
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="actions" role="group" aria-label="Quick actions">
+          <button class="action" data-prompt="Mumbai se Delhi ke trains dikhao">
+            <span class="action-icon teal" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6.8 3.4h10.4A3.1 3.1 0 0 1 20.3 6.5v8.2a3.1 3.1 0 0 1-3.1 3.1h-1.2v1.2h1.6v1.5H6.4v-1.5h1.6v-1.2H6.8A3.1 3.1 0 0 1 3.7 14.7V6.5A3.1 3.1 0 0 1 6.8 3.4Zm1.5 3.2v3.6h3.7V6.6H8.3Zm4.7 0v3.6h3.7V6.6h-3.7ZM8 19.2h1.6v-1.2H8v1.2Zm6.4 0h1.6v-1.2h-1.6v1.2Z"/>
+              </svg>
+            </span>
+            <span class="action-label">Train Search</span>
+          </button>
+
+          <button class="action" data-prompt="Train 12951 ka live status batao">
+            <span class="action-icon coral" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2.4c-3.7 0-6.7 2.9-6.7 6.5 0 4.9 6.7 12.5 6.7 12.5s6.7-7.6 6.7-12.5c0-3.6-3-6.5-6.7-6.5Zm0 8.8a2.3 2.3 0 1 1 0-4.6 2.3 2.3 0 0 1 0 4.6Z"/>
+              </svg>
+            </span>
+            <span class="action-label">Live Status</span>
+          </button>
+
+          <button class="action" data-prompt="Rajdhani Express 3A seat availability check karo">
+            <span class="action-icon gold" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M4.4 6.2h15.2a1.7 1.7 0 0 1 1.7 1.7v2.05c-1.05.28-1.8 1.22-1.8 2.35s.75 2.07 1.8 2.35v2.05a1.7 1.7 0 0 1-1.7 1.7H4.4a1.7 1.7 0 0 1-1.7-1.7v-2.05c1.05-.28 1.8-1.22 1.8-2.35S3.75 10.23 2.7 9.95V7.9A1.7 1.7 0 0 1 4.4 6.2Zm3.3 3.3c-.5 0-.9.4-.9.9v3.2c0 .5.4.9.9.9h2.55c.5 0 .9-.4.9-.9v-3.2c0-.5-.4-.9-.9-.9H7.7Zm5.1 1.15h5.1v1.35h-5.1V10.65Zm0 2.5h4.2v1.35h-4.2V13.15Z"/>
+              </svg>
+            </span>
+            <span class="action-label">Seat Availability</span>
+          </button>
+
+          <button class="action" data-prompt="" data-ask="1">
+            <span class="action-icon ask" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path fill="#142B3D" d="M5.4 4.2h10.4A3.2 3.2 0 0 1 19 7.4v6.2a3.2 3.2 0 0 1-3.2 3.2H10.3L6.2 19.6A.8.8 0 0 1 4.9 19v-2.2h-.3A3.2 3.2 0 0 1 1.4 13.6V7.4A3.2 3.2 0 0 1 4.6 4.2h.8Z"/>
+                <path fill="#24A88F" d="M10.4 8.05c.95-.7 2.55-.55 3.15.7.4.82.12 1.55-.55 2.08-.5.4-.78.7-.78 1.28h-1.35c0-1.05.4-1.55 1-1.98.42-.3.58-.55.46-.9-.12-.38-.62-.5-1.05-.22-.2.12-.38.3-.55.55l-1.12-.86c.35-.5.8-.9 1.79-1.65Z"/>
+                <circle fill="#24A88F" cx="11.55" cy="13.55" r="0.7"/>
+                <path fill="#F56B2A" d="M19.6 3.4l.35 1.15 1.15.35-1.15.35-.35 1.15-.35-1.15-1.15-.35 1.15-.35.35-1.15Zm2.55 3.55.22.72.72.22-.72.22-.22.72-.22-.72-.72-.22.72-.22.22-.72Z"/>
+              </svg>
+            </span>
+            <span class="action-label">Ask Me Anything</span>
+          </button>
+        </div>
+
+        <div class="composer-wrap">
+          <form class="composer" id="composer" autocomplete="off">
+            <button class="mic" type="button" id="micBtn" aria-label="Voice input">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="3.2" width="6" height="10" rx="3"/>
+                <path d="M6.4 11.2a5.6 5.6 0 0 0 11.2 0"/>
+                <path d="M12 16.8v3.2M9.2 20h5.6"/>
+              </svg>
+            </button>
+            <input id="msgInput" type="text" placeholder="Type your message..." aria-label="Type your message" />
+            <button class="send" type="submit" aria-label="Send message">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M3.2 11.05 20.4 3.6c.85-.37 1.66.44 1.29 1.29L14.2 21.1c-.4.9-1.7.85-2.02-.08l-2.18-6.28-6.28-2.18c-.93-.32-.98-1.62-.08-2.02l-.44.51Z"/>
+              </svg>
+            </button>
+          </form>
+        </div>
+
+        <p class="privacy">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="5" y="11" width="14" height="10" rx="2"/>
+            <path d="M8 11V8.2a4 4 0 0 1 8 0V11"/>
+          </svg>
+          Your conversations are safe with BookKaro Sarthi
+        </p>
+        <div class="home-bar" aria-hidden="true"><span></span></div>
+
+        <div class="menu-sheet" id="menuSheet">
+          <button type="button">My trips</button>
+          <button type="button">Notifications</button>
+          <button type="button">Settings</button>
+          <button type="button">Help &amp; support</button>
+        </div>
+        <div class="toast" id="toast"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const input = document.getElementById("msgInput");
+    const form = document.getElementById("composer");
+    const toast = document.getElementById("toast");
+    const micBtn = document.getElementById("micBtn");
+    const menuBtn = document.getElementById("menuBtn");
+    const menuSheet = document.getElementById("menuSheet");
+
+    function showToast(text) {
+      toast.textContent = text;
+      toast.classList.add("show");
+      clearTimeout(showToast._t);
+      showToast._t = setTimeout(() => toast.classList.remove("show"), 1800);
+    }
+
+    function goChat(q) {
+      q = (q || "").trim();
+      location.href = q ? "chat.html?q=" + encodeURIComponent(q.slice(0, 300)) : "chat.html";
+    }
+
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text) {
+        input.focus();
+        return;
+      }
+      goChat(text);
+    });
+
+    document.querySelectorAll(".action").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const ask = btn.dataset.ask;
+        const prompt = btn.dataset.prompt || "";
+        if (ask) { goChat(""); return; }
+        goChat(prompt);
+      });
+    });
+
+    micBtn.addEventListener("click", () => {
+      input.focus();
+    });
+
+    menuBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      menuSheet.classList.toggle("open");
+    });
+
+    document.addEventListener("click", () => menuSheet.classList.remove("open"));
+  </script>
+</body>
+</html>

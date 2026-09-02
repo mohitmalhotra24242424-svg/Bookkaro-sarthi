@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>BookKro Sarthi — Namaste! 🙏</title>
+<meta name="description" content="BookKro Sarthi — horizontal mobile railway assistant. Find trains, live status, fares, PNR — naturally, by voice or text." />
+<meta name="theme-color" content="#FFF7ED" />
+<style>
+  /* ════════════════════════════════════════════════════════════════════
+     BookKro Sarthi — premium HORIZONTAL mobile UI
+     Two-column cockpit: AI conversation (left) · train visual + orb (right)
+     Warm saffron palette. No railway calls, no secrets, no external URLs.
+     ════════════════════════════════════════════════════════════════════ */
+  :root {
+    --orange:        #F97316;  /* main railway orange */
+    --orange-deep:   #EA580C;  /* deep CTA */
+    --amber:         #FDBA74;  /* soft amber highlight */
+    --hero-bg:       #FFF7ED;  /* pale warm cream */
+    --bg-2:          #FFEDD5;  /* light peach */
+    --ink:           #171717;  /* deep charcoal */
+    --muted:         #57534E;  /* warm gray */
+    --surface:       #FFFFFF;
+    --line:          #E7E5E4;  /* soft beige-gray */
+    --orb-center:    #FFF7ED;
+    --orb-glow:      #FB923C;
+    --green:         #16A34A;
+    --green-bg:      #DCFCE7;
+    --navh:          64px;
+    --radius:        22px;
+    --gut:           22px;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+      "Noto Sans", "Noto Sans Devanagari", sans-serif;
+    background: var(--hero-bg); color: var(--ink);
+    line-height: 1.45; -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  a { color: inherit; text-decoration: none; }
+  button, input { font: inherit; color: inherit; }
+  img { max-width: 100%; display: block; }
+  ul { list-style: none; padding: 0; }
+  :focus-visible { outline: 2.5px solid var(--orange-deep); outline-offset: 2px; border-radius: 10px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .i { width: 20px; height: 20px; flex: 0 0 auto; }
+  .i.sm { width: 15px; height: 15px; }
+  .i.xs { width: 12px; height: 12px; }
+
+  /* ── app frame ── */
+  .frame-label {
+    display: none;
+    text-align: center; padding: 14px 16px 6px;
+    font-size: 12px; color: var(--muted); letter-spacing: .2px;
+  }
+  .frame-label b { color: var(--orange-deep); }
+  .shell {
+    max-width: 980px; margin-inline: auto;
+    min-height: 100dvh;
+    display: flex; flex-direction: column;
+    padding: 0 var(--gut) calc(var(--navh) + 34px);
+    position: relative;
+  }
+  @media (min-width: 1024px) {
+    body {
+      background:
+        radial-gradient(900px 500px at 12% -6%, rgba(249,115,22,.10), transparent 60%),
+        radial-gradient(800px 500px at 92% 108%, rgba(234,88,12,.10), transparent 60%),
+        #FFF4E9;
+    }
+    .frame-label { display: block; }
+    .shell {
+      border-radius: 34px;
+      border: 1px solid rgba(231,229,228,.9);
+      box-shadow: 0 34px 90px rgba(120, 60, 10, .18), 0 0 0 9px #fff, 0 0 0 10px rgba(231,229,228,.6);
+      margin-top: 22px; margin-bottom: 22px;
+      background: #FFFBF6;
+      overflow: hidden;
+    }
+  }
+
+  /* ── top bar ── */
+  .topbar {
+    display: flex; align-items: center; gap: 10px;
+    height: 68px; flex: 0 0 auto;
+  }
+  .brand { display: flex; align-items: center; gap: 11px; font-weight: 800; font-size: 17.5px; letter-spacing: -.3px; }
+  .mark {
+    position: relative; width: 38px; height: 38px; border-radius: 12px; flex: 0 0 auto;
+    display: grid; place-items: center; color: #fff;
+    background: linear-gradient(150deg, #FB923C, var(--orange) 55%, var(--orange-deep));
+    box-shadow: 0 6px 16px rgba(234, 88, 12, .32), inset 0 1px 0 rgba(255,255,255,.45);
+  }
+  .brand .b-sub { display: block; font-size: 8.5px; letter-spacing: 1.7px; color: var(--orange-deep); font-weight: 800; line-height: 1; margin-top: 3px; }
+  .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .ask-ai {
+    border: 0; cursor: pointer; border-radius: 999px; padding: 9px 16px;
+    font-size: 13px; font-weight: 750; color: #fff; letter-spacing: .1px;
+    background: linear-gradient(150deg, #FB923C, var(--orange-deep));
+    box-shadow: 0 6px 16px rgba(234, 88, 12, .35), inset 0 1px 0 rgba(255,255,255,.4);
+    display: inline-flex; align-items: center; gap: 7px;
+    transition: transform .12s;
+  }
+  .ask-ai:active { transform: scale(.96); }
+  .avatar {
+    width: 40px; height: 40px; border-radius: 50%; flex: 0 0 auto;
+    display: grid; place-items: center; border: 0; cursor: pointer;
+    color: #7C2D12; background: linear-gradient(150deg, #FFEDD5, var(--amber));
+    border: 1.5px solid #fff; box-shadow: 0 3px 10px rgba(120, 60, 10, .18);
+  }
+
+  /* ── two-column hero ── */
+  .hero {
+    flex: 1 0 auto;
+    display: grid; grid-template-columns: 53% 47%;
+    min-height: 460px;
+    border-radius: 26px;
+    overflow: hidden;
+    background: linear-gradient(110deg, #FFF7ED 0%, #FFEDD5 48%, #FDBA74 100%);
+    box-shadow: 0 18px 46px rgba(120, 60, 10, .16), inset 0 1px 0 rgba(255,255,255,.7);
+    position: relative;
+  }
+  .hero::after {  /* thin inner highlight */
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    border-radius: inherit; box-shadow: inset 0 0 0 1px rgba(255,255,255,.55);
+  }
+
+  /* ── left conversation panel ── */
+  .left {
+    position: relative; z-index: 2;
+    display: flex; flex-direction: column; justify-content: center;
+    padding: 34px 30px 30px 34px; min-width: 0;
+  }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 10px; font-weight: 800; letter-spacing: 2.1px; text-transform: uppercase;
+    color: var(--orange-deep);
+  }
+  .eyebrow::before {
+    content: ""; width: 22px; height: 2px; border-radius: 2px;
+    background: linear-gradient(90deg, var(--orange), var(--orange-deep));
+  }
+  .left h1 {
+    font-size: clamp(26px, 3.4vw, 40px); line-height: 1.08; letter-spacing: -1px;
+    font-weight: 800; margin-top: 12px;
+  }
+  .left .copy {
+    font-size: clamp(12.5px, 1.4vw, 14.5px); color: var(--muted);
+    margin-top: 10px; max-width: 40ch; line-height: 1.55;
+  }
+
+  /* composer card */
+  .composer {
+    margin-top: 20px;
+    background: var(--surface); border-radius: var(--radius);
+    border: 1px solid var(--line);
+    box-shadow: 0 16px 34px rgba(120, 60, 10, .14);
+    padding: 14px 14px 13px;
+  }
+  .composer-label {
+    font-size: 12.5px; font-weight: 800; letter-spacing: -.1px;
+    color: var(--ink); margin: 0 4px 9px;
+  }
+  .c-row { display: flex; align-items: center; gap: 9px; }
+  .c-field {
+    flex: 1; min-width: 0; display: flex; align-items: center;
+    background: #FAF6F0; border: 1.5px solid var(--line); border-radius: 999px;
+    padding: 4px 6px 4px 16px; transition: border-color .15s, box-shadow .15s;
+  }
+  .c-field:focus-within { border-color: var(--orange); box-shadow: 0 0 0 4px rgba(249,115,22,.14); }
+  .c-field input {
+    flex: 1; min-width: 0; border: 0; background: transparent; outline: none;
+    font-size: 13.5px; padding: 9px 0; color: var(--ink);
+  }
+  .c-field input::placeholder { color: #A8A29E; }
+  .mic {
+    width: 44px; height: 44px; border-radius: 50%; flex: 0 0 auto; cursor: pointer;
+    border: 0; display: grid; place-items: center; color: #fff;
+    background: linear-gradient(155deg, #FB923C, var(--orange-deep));
+    box-shadow: 0 7px 18px rgba(234, 88, 12, .38), inset 0 1px 0 rgba(255,255,255,.4);
+    transition: transform .12s;
+  }
+  .mic:active { transform: scale(.93); }
+  .send {
+    width: 44px; height: 44px; border-radius: 13px; flex: 0 0 auto; cursor: pointer;
+    border: 0; display: grid; place-items: center; color: #fff;
+    background: linear-gradient(155deg, var(--orange), var(--orange-deep));
+    box-shadow: 0 7px 18px rgba(234, 88, 12, .38), inset 0 1px 0 rgba(255,255,255,.4);
+    transition: transform .12s;
+  }
+  .send:active { transform: scale(.93); }
+  .composer-hint {
+    margin: 10px 6px 0; font-size: 11px; font-weight: 650; color: var(--muted);
+  }
+  .composer-hint b { color: var(--orange-deep); }
+
+  /* quick prompts — single horizontal scroll row */
+  .prompts { display: flex; gap: 8px; margin-top: 14px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+  .prompts::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: 0 0 auto; border: 1px solid var(--line); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+    background: #FFFBF6; color: var(--ink); border-radius: 999px;
+    padding: 7px 13px; font-size: 12px; font-weight: 700; white-space: nowrap;
+    box-shadow: 0 2px 6px rgba(120,60,10,.05);
+    transition: transform .12s, border-color .15s, box-shadow .15s;
+  }
+  .chip .i { color: var(--orange-deep); }
+  .chip:hover { border-color: #F5CFA9; box-shadow: 0 5px 14px rgba(120,60,10,.1); }
+  .chip:active { transform: scale(.96); }
+
+  /* ── right AI + train panel ── */
+  .right {
+    position: relative; z-index: 1; min-width: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 26px 20px 20px;
+    background:
+      radial-gradient(circle at 70% 45%, rgba(251,146,60,0.45), rgba(255,237,213,0) 58%);
+  }
+  .orb {
+    position: relative; width: 118px; height: 118px; display: grid; place-items: center;
+    margin-top: 6px;
+  }
+  .orb .ring {
+    position: absolute; border-radius: 50%;
+    border: 1.5px solid rgba(249,115,22,.38);
+  }
+  .orb .ring.r1 { inset: 0; animation: breathe 3.4s ease-in-out infinite; }
+  .orb .ring.r2 { inset: 18px; border-color: rgba(249,115,22,.28); animation: breathe 3.4s ease-in-out infinite reverse; }
+  .orb .core {
+    position: relative; width: 74px; height: 74px; border-radius: 50%;
+    background: radial-gradient(circle at 36% 30%, #FFFFFF 0 22%, var(--orb-center) 48%, var(--orb-glow) 100%);
+    box-shadow: 0 0 0 1px rgba(255,255,255,.6), 0 14px 40px rgba(249,115,22,.55), 0 0 70px rgba(251,146,60,.55);
+  }
+  .orb .core::after {
+    content: ""; position: absolute; inset: -10px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(251,146,60,.35), transparent 70%);
+    animation: pulse 2.8s ease-out infinite;
+  }
+  @keyframes breathe { 0%,100% { opacity: .7; transform: scale(1); } 50% { opacity: 1; transform: scale(1.04); } }
+  @keyframes pulse { 0% { transform: scale(.92); opacity: .9; } 100% { transform: scale(1.22); opacity: 0; } }
+  .orb-label {
+    margin-top: 8px; font-size: 13px; font-weight: 750; letter-spacing: -.1px; color: var(--ink);
+  }
+  .orb-sub { font-size: 11px; color: var(--muted); font-weight: 600; margin-top: 1px; }
+
+  .train-visual {
+    position: relative; width: 100%; margin-top: 4px; flex: 1; min-height: 150px;
+    display: flex; align-items: flex-end; justify-content: center;
+  }
+  .train-visual::before {  /* soft ground glow */
+    content: ""; position: absolute; left: 10%; right: 10%; bottom: 2%; height: 34%;
+    background: radial-gradient(50% 62% at 50% 62%, rgba(249,115,22,.4), transparent 72%);
+    filter: blur(10px); z-index: 0;
+  }
+  .train-visual img {
+    position: relative; z-index: 1; width: 92%; max-width: 340px;
+    border-radius: 18px; object-fit: cover;
+    box-shadow: 0 18px 40px rgba(120, 60, 10, .28);
+    mask-image: linear-gradient(#000 78%, transparent 100%);
+    -webkit-mask-image: linear-gradient(#000 78%, transparent 100%);
+  }
+  .status-card {
+    position: absolute; z-index: 3; left: 12%; bottom: 26px;
+    display: flex; align-items: center; gap: 10px;
+    background: var(--surface); border-radius: 16px; border: 1px solid var(--line);
+    padding: 10px 14px 10px 11px;
+    box-shadow: 0 16px 34px rgba(120, 60, 10, .2);
+  }
+  .status-card .sc-dot {
+    width: 34px; height: 34px; border-radius: 11px; flex: 0 0 auto; display: grid; place-items: center;
+    color: #fff; background: linear-gradient(150deg, #FB923C, var(--orange-deep));
+    box-shadow: 0 4px 12px rgba(234,88,12,.35);
+  }
+  .status-card b { display: block; font-size: 12.5px; letter-spacing: -.1px; }
+  .status-card span { display: block; font-size: 10.5px; color: var(--muted); font-weight: 600; }
+  .status-card .pulse {
+    margin-left: 4px; width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto;
+    background: var(--green); box-shadow: 0 0 0 4px rgba(22,163,74,.15);
+  }
+
+  /* ── capability strip ── */
+  .sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 0 3px; margin: 26px 0 12px; }
+  .sec-head h2 { font-size: 16.5px; font-weight: 800; letter-spacing: -.4px; }
+  .sec-head .more { font-size: 12px; font-weight: 700; color: var(--orange-deep); white-space: nowrap; }
+  .rail {
+    display: flex; gap: 12px; min-width: 0;
+    overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity;
+    padding: 3px 3px 10px; margin: 0 -3px;
+    scrollbar-width: none;
+  }
+  .rail::-webkit-scrollbar { display: none; }
+  .rail > * { scroll-snap-align: start; flex: 0 0 auto; }
+  .cap-card {
+    width: 156px; min-height: 96px;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 18px;
+    padding: 14px 14px; cursor: pointer;
+    box-shadow: 0 4px 12px rgba(120,60,10,.06);
+    transition: transform .12s, box-shadow .15s, border-color .15s;
+  }
+  .cap-card:hover { border-color: #F5CFA9; box-shadow: 0 10px 24px rgba(120,60,10,.12); }
+  .cap-card:active { transform: scale(.97); }
+  .cap-card .ico {
+    width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center;
+    color: var(--orange-deep);
+    background: linear-gradient(160deg, #FFF1E4, #FFE4C7);
+    border: 1px solid #FCE0C0;
+  }
+  .cap-card b { font-size: 13px; font-weight: 800; letter-spacing: -.2px; line-height: 1.25; }
+
+  /* ── train result cards ── */
+  .results { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .rcard {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 20px;
+    padding: 16px 16px 14px; cursor: pointer; text-align: left;
+    box-shadow: 0 6px 18px rgba(120,60,10,.07);
+    transition: transform .12s, box-shadow .15s;
+  }
+  .rcard:hover { box-shadow: 0 14px 30px rgba(120,60,10,.13); }
+  .rcard:active { transform: scale(.985); }
+  .rcard-top { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
+  .rcard-no {
+    font-size: 10px; font-weight: 800; letter-spacing: .5px; color: var(--orange-deep);
+    background: #FFF1E4; border: 1px solid #FCE0C0; border-radius: 999px; padding: 3px 9px;
+  }
+  .rcard-name { font-size: 14px; font-weight: 800; letter-spacing: -.2px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rcard-route { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); font-weight: 700; margin-bottom: 12px; }
+  .rcard-route b { color: var(--ink); font-size: 13px; }
+  .rline { flex: 1; min-width: 14px; height: 2px; background: linear-gradient(90deg, var(--orange), var(--amber)); border-radius: 2px; position: relative; }
+  .rline::after { content: ""; position: absolute; right: -1px; top: -3px; border: 4px solid transparent; border-left: 6px solid var(--amber); }
+  .rcard-time { display: flex; align-items: center; gap: 8px; margin-bottom: 13px; }
+  .rcard-time .dep { font-size: 14px; font-weight: 800; letter-spacing: -.2px; }
+  .rcard-time .arrow { color: var(--orange); display: grid; place-items: center; }
+  .rcard-time .arr { font-size: 14px; font-weight: 800; letter-spacing: -.2px; margin-left: auto; }
+  .rcard-status {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; font-weight: 750; border-radius: 999px; padding: 4px 10px;
+  }
+  .rcard-status.verified { color: var(--green); background: var(--green-bg); border: 1px solid #BBF7D0; }
+  .rcard-status.verified::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+  .rcard-status.example { color: var(--muted); background: #FAFAF9; border: 1px solid var(--line); }
+  .rcard-status.example::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #D6D3D1; }
+  .sample-note { padding: 0 3px; font-size: 11px; color: var(--muted); font-weight: 600; margin-top: 12px; }
+
+  /* ── bottom nav ── */
+  .bottom-nav {
+    position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); z-index: 50;
+    width: min(980px, 100%);
+    display: flex; align-items: stretch;
+    height: calc(var(--navh) + env(safe-area-inset-bottom));
+    padding: 7px 14px calc(7px + env(safe-area-inset-bottom));
+    background: rgba(255,255,255,.94); backdrop-filter: blur(16px) saturate(150%);
+    border-top: 1px solid var(--line);
+    box-shadow: 0 -8px 30px rgba(120,60,10,.08);
+  }
+  .bn-item {
+    flex: 1; border: 0; background: transparent; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    color: var(--muted); font-size: 11px; font-weight: 750; letter-spacing: .1px;
+    border-radius: 14px; transition: color .15s;
+  }
+  .bn-item .bn-ico { line-height: 1; display: grid; place-items: center; }
+  .bn-item[aria-current="page"] { color: var(--orange-deep); }
+  .bn-item[aria-current="page"] .bn-ico { background: #FFE4C7; border-radius: 12px; padding: 3px; }
+
+  /* ── responsive: stack on narrow screens ── */
+  @media (max-width: 760px) {
+    .hero { grid-template-columns: 1fr; }
+    .left { padding: 26px 22px 24px; }
+    .right { padding: 8px 20px 30px; min-height: 320px; }
+    .results { grid-template-columns: 1fr; }
+    .status-card { left: 8%; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-train" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="5" y="3" width="14" height="13.5" rx="3.5"/><path d="M5 10.5h14"/><circle cx="9" cy="13.6" r=".9" fill="currentColor" stroke="none"/><circle cx="15" cy="13.6" r=".9" fill="currentColor" stroke="none"/><path d="M9 20.2 7.2 22M15 20.2l1.8 1.8M12 16.5v1.8"/>
+    </symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z"/><path d="M7 11a5 5 0 0 0 10 0M12 16v4M9 20h6"/>
+    </symbol>
+    <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 12h12M13 6l6 6-6 6"/>
+    </symbol>
+    <symbol id="i-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="8" r="3.6"/><path d="M5 20.2c1.3-3.7 4-5.4 7-5.4s5.7 1.7 7 5.4"/>
+    </symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 21.5S5.5 15.6 5.5 10.8a6.5 6.5 0 1 1 13 0c0 4.8-6.5 10.7-6.5 10.7Z"/><circle cx="12" cy="10.6" r="2.4"/>
+    </symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M13 2.5 5.5 13.5H11L9.5 21.5 18.5 10.5H13l0-8Z"/>
+    </symbol>
+    <symbol id="i-ticket" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5.5v13" stroke-dasharray="2.2 2.8"/>
+    </symbol>
+    <symbol id="i-rupee" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M7 3h10M7 8h10"/><path d="M7 13h3.5a5 5 0 0 0 0-10"/><path d="m8.5 13 8 8"/>
+    </symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>
+    </symbol>
+    <symbol id="i-compare" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/>
+    </symbol>
+    <symbol id="i-book" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 5a2 2 0 0 1 2-2h13v18H6a2 2 0 0 1-2-2Z"/><path d="M4 19a2 2 0 0 0 2 2h13"/><path d="M8 7h6M8 11h6"/>
+    </symbol>
+    <symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="m4 11 8-7 8 7"/><path d="M5.5 9.5V20h13V9.5"/><path d="M10 20v-5.5h4V20"/>
+    </symbol>
+    <symbol id="i-wallet" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/>
+    </symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="frame-label"><b>BookKro Sarthi</b> — horizontal mobile preview · landscape cockpit</div>
+
+<div class="shell">
+
+  <!-- ── compact header ── -->
+  <header class="topbar">
+    <span class="brand">
+      <span class="mark" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-train"/></svg></span>
+      <span>BookKro Sarthi<span class="b-sub">AI RAILWAY ASSISTANT</span></span>
+    </span>
+    <div class="topbar-right">
+      <button class="ask-ai" id="ask-ai" type="button">
+        <svg class="i xs" aria-hidden="true"><use href="#i-spark"/></svg>Ask AI
+      </button>
+      <button class="avatar" id="profile-btn" type="button" aria-label="Profile">
+        <svg class="i" aria-hidden="true"><use href="#i-user"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ── two-column cockpit ── -->
+  <main class="hero">
+
+    <!-- LEFT — AI conversation -->
+    <section class="left" aria-label="AI conversation">
+      <span class="eyebrow">AI Railway Assistant</span>
+      <h1>Namaste! 🙏</h1>
+      <p class="copy">Main BookKro Sarthi hoon. Bataiye, main aapki kaise madad kar sakti hoon? Find trains, live status, fares, PNR — naturally.</p>
+
+      <div class="composer">
+        <div class="composer-label">Ask BookKro Sarthi anything about your journey</div>
+        <form class="c-row" id="form">
+          <label class="sr" for="query">Ask BookKro Sarthi anything about your journey</label>
+          <div class="c-field">
+            <input id="query" name="query" type="text" autocomplete="off" spellcheck="false"
+                   enterkeyhint="send" placeholder="Kal Amritsar se Delhi jaana hai..." />
+          </div>
+          <button class="mic" id="mic" type="button" aria-label="Bolkar poochho — voice" title="Bolkar poochho">
+            <svg class="i" aria-hidden="true"><use href="#i-mic"/></svg>
+          </button>
+          <button class="send" id="send" type="submit" aria-label="Send to BookKro Sarthi">
+            <svg class="i" aria-hidden="true"><use href="#i-send"/></svg>
+          </button>
+        </form>
+        <div class="composer-hint"><b>Bolkar</b> ya type karke poochho.</div>
+      </div>
+
+      <div class="prompts" aria-label="Quick prompts">
+        <button class="chip" type="button" data-q="Kal Amritsar se Delhi jaana hai"><svg class="i sm" aria-hidden="true"><use href="#i-train"/></svg>Find a train</button>
+        <button class="chip" type="button" data-q="12014 ka live status batao"><svg class="i sm" aria-hidden="true"><use href="#i-pin"/></svg>Live status</button>
+        <button class="chip" type="button" data-q="Kaunsi train fastest hai?"><svg class="i sm" aria-hidden="true"><use href="#i-bolt"/></svg>Fastest train</button>
+        <button class="chip" type="button" data-q="12014 ka fare batao"><svg class="i sm" aria-hidden="true"><use href="#i-rupee"/></svg>Check fare</button>
+        <button class="chip" type="button" data-q="Mera PNR check karo"><svg class="i sm" aria-hidden="true"><use href="#i-ticket"/></svg>Check PNR</button>
+        <button class="chip" type="button" data-q="RAC aur WL kya hota hai?"><svg class="i sm" aria-hidden="true"><use href="#i-chat"/></svg>Railway questions</button>
+      </div>
+    </section>
+
+    <!-- RIGHT — AI orb + train visual -->
+    <section class="right" aria-label="AI assistant visual">
+      <div class="orb" aria-hidden="true">
+        <span class="ring r1"></span>
+        <span class="ring r2"></span>
+        <span class="core"></span>
+      </div>
+      <div class="orb-label">Ask BookKro Sarthi anything</div>
+      <div class="orb-sub">Trains · live status · fares · PNR</div>
+
+      <div class="train-visual" aria-hidden="true">
+        <img src="assets/train-3q.jpg" alt="" fetchpriority="high" decoding="async" />
+      </div>
+
+      <div class="status-card">
+        <span class="sc-dot"><svg class="i sm" aria-hidden="true"><use href="#i-train"/></svg></span>
+        <span>
+          <b>BookKro Sarthi</b>
+          <span>Ready to help with your journey</span>
+        </span>
+        <span class="pulse" aria-hidden="true"></span>
+      </div>
+    </section>
+  </main>
+
+  <!-- ── horizontal capability strip ── -->
+  <section aria-label="Capabilities">
+    <div class="sec-head">
+      <h2>What BookKro Sarthi can do</h2>
+      <span class="more">Swipe →</span>
+    </div>
+    <div class="rail">
+      <button class="cap-card" type="button" data-q="Kal Amritsar se Delhi jaana hai"><span class="ico"><svg class="i"><use href="#i-train"/></svg></span><b>Find Trains</b></button>
+      <button class="cap-card" type="button" data-q="Meri train ka live status batao"><span class="ico"><svg class="i"><use href="#i-pin"/></svg></span><b>Live Status</b></button>
+      <button class="cap-card" type="button" data-q="Do trains compare karo"><span class="ico"><svg class="i"><use href="#i-compare"/></svg></span><b>Compare Trains</b></button>
+      <button class="cap-card" type="button" data-q="12014 ka fare batao"><span class="ico"><svg class="i"><use href="#i-rupee"/></svg></span><b>Check Fare</b></button>
+      <button class="cap-card" type="button" data-q="Mera PNR aur booking check karo"><span class="ico"><svg class="i"><use href="#i-ticket"/></svg></span><b>PNR &amp; Bookings</b></button>
+      <button class="cap-card" type="button" data-q="Railway se juda sawaal poochho"><span class="ico"><svg class="i"><use href="#i-book"/></svg></span><b>Railway Knowledge</b></button>
+    </div>
+  </section>
+
+  <!-- ── train result cards ── -->
+  <section aria-label="Train results">
+    <div class="sec-head">
+      <h2>Your AI Railway Assistant</h2>
+      <span class="more">Amritsar → Delhi</span>
+    </div>
+    <div class="results">
+      <button class="rcard" type="button" data-q="12014 Amritsar Shatabdi ki availability aur fare batao">
+        <span class="rcard-top">
+          <span class="rcard-no">12014</span>
+          <span class="rcard-name">Amritsar Shatabdi</span>
+        </span>
+        <span class="rcard-route"><b>ASR</b> <span class="rline" aria-hidden="true"></span> <b>NDLS</b></span>
+        <span class="rcard-time">
+          <span class="dep">04:55</span>
+          <span class="arrow"><svg class="i sm" aria-hidden="true"><use href="#i-send"/></svg></span>
+          <span class="arr">06:57</span>
+        </span>
+        <span class="rcard-status verified">Live · Verified</span>
+      </button>
+
+      <button class="rcard" type="button" data-q="14542 Example Express ki availability aur fare batao">
+        <span class="rcard-top">
+          <span class="rcard-no">14542</span>
+          <span class="rcard-name">Example Express</span>
+        </span>
+        <span class="rcard-route"><b>ASR</b> <span class="rline" aria-hidden="true"></span> <b>NDLS</b></span>
+        <span class="rcard-time">
+          <span class="dep">05:10</span>
+          <span class="arrow"><svg class="i sm" aria-hidden="true"><use href="#i-send"/></svg></span>
+          <span class="arr">07:12</span>
+        </span>
+        <span class="rcard-status example">Example</span>
+      </button>
+    </div>
+    <p class="sample-note">Sample cards — visual examples only, not live railway results.</p>
+  </section>
+</div>
+
+<!-- ── bottom navigation ── -->
+<nav class="bottom-nav" aria-label="App navigation">
+  <button class="bn-item" type="button" aria-current="page" data-nav="home"><span class="bn-ico"><svg class="i"><use href="#i-home"/></svg></span>Home</button>
+  <button class="bn-item" type="button" data-q="Chat kholo"><span class="bn-ico"><svg class="i"><use href="#i-chat"/></svg></span>Chat</button>
+  <button class="bn-item" type="button" data-q="Meri bookings dikhao"><span class="bn-ico"><svg class="i"><use href="#i-ticket"/></svg></span>My Bookings</button>
+  <button class="bn-item" type="button" data-q="Mera wallet balance dikhao"><span class="bn-ico"><svg class="i"><use href="#i-wallet"/></svg></span>Wallet</button>
+</nav>
+
+<script>
+(function () {
+  'use strict';
+  function $(id) { return document.getElementById(id); }
+  var input = $('query'), form = $('form');
+
+  /* hand a question to the existing chat flow */
+  var sent = false;
+  function go(q) {
+    if (sent) return;
+    sent = true;
+    location.href = q ? 'chat.html?q=' + encodeURIComponent((q || '').slice(0, 300)) : 'chat.html';
+  }
+  function submitQuery(q) {
+    q = (q || '').trim();
+    if (!q) { input.focus(); return; }
+    go(q);
+  }
+  form.addEventListener('submit', function (e) { e.preventDefault(); submitQuery(input.value); });
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitQuery(input.value); }
+  });
+
+  /* quick prompts + capability cards + result cards */
+  Array.prototype.forEach.call(document.querySelectorAll('[data-q]'), function (el) {
+    el.addEventListener('click', function () {
+      var q = el.getAttribute('data-q') || '';
+      if (el.classList.contains('chip') || el.classList.contains('cap-card') || el.classList.contains('rcard')) {
+        if (!el.classList.contains('rcard')) { input.value = q; }
+        return;
+      }
+      submitQuery(q);
+    });
+  });
+  /* chips fill composer; Ask AI + Send commit */
+  $('ask-ai').addEventListener('click', function () { submitQuery(input.value); });
+  $('mic').addEventListener('click', function () { input.focus(); });
+  $('profile-btn').addEventListener('click', function () { submitQuery(''); });
+
+  /* bottom nav active state (visual) */
+  Array.prototype.forEach.call(document.querySelectorAll('.bn-item'), function (el) {
+    el.addEventListener('click', function () {
+      if (el.getAttribute('data-q')) return; // chat/bookings/wallet route through data-q
+      document.querySelectorAll('.bn-item').forEach(function (b) { b.removeAttribute('aria-current'); });
+      el.setAttribute('aria-current', 'page');
+    });
+  });
+})();
+</script>
+</body>
+</html>

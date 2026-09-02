@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>BookKro Sarthi — Bolkar poochho (voice + live text)</title>
+<meta name="theme-color" content="#FFF8EF" />
+<style>
+  :root {
+    --orange:   #F97316;
+    --orange-2: #F56B2A;
+    --navy:     #142B3D;
+    --cream:    #FFF8EF;
+    --cream-2:  #FFF9F2;
+    --offwhite: #FCFAF6;
+    --teal:     #159889;
+    --gold:     #F3C744;
+    --coral:    #F26B4A;
+    --line:     #E8E1D8;
+    --muted:    #8A9298;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+      "Noto Sans", "Noto Sans Devanagari", sans-serif;
+    background:
+      radial-gradient(900px 460px at 14% -8%, rgba(245,107,42,.10), transparent 60%),
+      radial-gradient(800px 460px at 90% 110%, rgba(21,152,137,.10), transparent 60%),
+      var(--offwhite);
+    color: var(--navy);
+    line-height: 1.5; -webkit-font-smoothing: antialiased;
+    min-height: 100dvh; display: flex; flex-direction: column; align-items: center;
+    padding: 22px 18px 40px;
+  }
+  button { font: inherit; color: inherit; }
+  .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+
+  .app {
+    width: min(980px, 100%);
+    background: var(--offwhite);
+    border-radius: 30px;
+    border: 1px solid var(--line);
+    box-shadow: 0 30px 80px rgba(20,43,61,.12);
+    overflow: hidden;
+  }
+
+  /* header */
+  .topbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 22px; background: #fff; border-bottom: 1px solid var(--line);
+  }
+  .mark {
+    width: 42px; height: 42px; border-radius: 13px; flex: 0 0 auto;
+    display: grid; place-items: center; color: #fff;
+    background: linear-gradient(150deg, #FB923C, var(--orange) 55%, #EA580C);
+    box-shadow: 0 6px 16px rgba(234,88,12,.32), inset 0 1px 0 rgba(255,255,255,.45);
+  }
+  .brand { font-weight: 800; font-size: 17px; letter-spacing: -.3px; }
+  .status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 2px; }
+  .status i { width: 8px; height: 8px; border-radius: 50%; background: var(--teal); box-shadow: 0 0 0 3px rgba(21,152,137,.16); }
+  .dots { margin-left: auto; display: flex; gap: 4px; }
+  .dots span { width: 5px; height: 5px; border-radius: 50%; background: #5b6470; }
+  .i { width: 20px; height: 20px; flex: 0 0 auto; }
+
+  /* stage — avatar + bubble */
+  .stage {
+    display: grid; grid-template-columns: 42% 58%; align-items: center; gap: 8px;
+    padding: 34px 30px; background: var(--cream); position: relative; min-height: 430px;
+  }
+  .stage::before {  /* faint railway backdrop */
+    content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .35;
+    background:
+      radial-gradient(60% 70% at 78% 18%, rgba(245,107,42,.10), transparent 60%),
+      linear-gradient(160deg, var(--cream-2), var(--cream));
+  }
+  .avatar-wrap { position: relative; z-index: 2; display: flex; justify-content: center; }
+  .avatar-ring {
+    position: relative; width: min(300px, 72%); aspect-ratio: 1/1.12;
+    border-radius: 26px; overflow: hidden;
+    background: #fff; border: 1px solid var(--line);
+    box-shadow: 0 20px 50px rgba(20,43,61,.16);
+  }
+  .avatar-ring img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .avatar-ring img.pose { object-fit: contain; }
+  .avatar-ring.speaking::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    border-radius: 26px; box-shadow: 0 0 0 3px var(--orange), 0 0 40px rgba(245,107,42,.45);
+    animation: speakglow 1.2s ease-in-out infinite;
+  }
+  @keyframes speakglow { 0%,100% { opacity: .55; }
+  /* ── avatar gestures + Hindi subtitle ── */
+  .avatar-ring { cursor: pointer; }
+  .avatar-ring img.pose {
+    position: absolute; inset: 0; opacity: 0;
+    transition: opacity .34s ease, transform 1.1s cubic-bezier(.4,0,.6,1);
+  }
+  .avatar-ring img.pose.on { opacity: 1; }
+  .avatar-ring[data-g="1"] img.pose.on { transform: translateY(-1.4%) scale(1.016); }
+  .avatar-ring[data-g="2"] img.pose.on { transform: translateY(.5%) scale(.995); }
+  .avatar-ring.breath img.pose.on { animation: breathe 3.6s ease-in-out infinite alternate; }
+  @keyframes breathe { from { scale: 1 1; } to { scale: 1.008 1.012; } }
+  .sub-hi {
+    margin-top: 10px; padding: 9px 14px; border-radius: 14px;
+    background: rgba(245,107,42,.10); border: 1px solid rgba(245,107,42,.3);
+    font-family: "Noto Sans Devanagari", "Noto Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: clamp(12px, 1.5vw, 15px); line-height: 1.85; color: var(--navy);
+  }
+  .sub-hi b { color: var(--orange-deep); font-weight: 700; }
+  .sub-hi .tag {
+    font-size: 10.5px; font-weight: 800; color: var(--orange-deep);
+    background: #fff; border: 1px solid rgba(245,107,42,.35); border-radius: 999px;
+    padding: 1px 8px; margin-right: 8px; vertical-align: 2px;
+  }
+ 50% { opacity: 1; } }
+  .badge {
+    position: absolute; left: 50%; transform: translateX(-50%); bottom: -14px; z-index: 3;
+    background: #fff; border: 1px solid var(--line); border-radius: 999px;
+    padding: 5px 14px; font-size: 11px; font-weight: 800; letter-spacing: .4px;
+    color: var(--orange-2); box-shadow: 0 8px 20px rgba(20,43,61,.12); white-space: nowrap;
+  }
+
+  .bubble-col { position: relative; z-index: 2; min-width: 0; }
+  .who { font-size: 12px; font-weight: 700; color: var(--muted); margin: 0 6px 8px; letter-spacing: .2px; }
+  .bubble {
+    background: #fff; border-radius: 26px; border: 1px solid var(--line);
+    box-shadow: 0 16px 40px rgba(20,43,61,.13);
+    padding: 26px 28px; position: relative;
+  }
+  .bubble::before {
+    content: ""; position: absolute; left: -11px; top: 30px;
+    width: 20px; height: 20px; background: #fff; border-left: 1px solid var(--line);
+    border-bottom: 1px solid var(--line); transform: rotate(45deg);
+  }
+  .bubble .line {
+    font-size: clamp(20px, 2.6vw, 30px); font-weight: 800; letter-spacing: -.4px; line-height: 1.32;
+    min-height: 1.32em;
+  }
+  .bubble .line + .line { margin-top: 4px; }
+  .bubble .hl { color: var(--orange-2); }
+  .caret {
+    display: inline-block; width: 3px; height: .95em; background: var(--orange);
+    margin-left: 2px; vertical-align: -0.08em; border-radius: 2px;
+    animation: blink .8s steps(2) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .controls { display: flex; align-items: center; gap: 12px; margin-top: 20px; flex-wrap: wrap; }
+  .play {
+    border: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 10px;
+    background: linear-gradient(150deg, #FB923C, var(--orange-2) 55%, #EA580C); color: #fff;
+    border-radius: 999px; padding: 13px 24px; font-size: 15px; font-weight: 800;
+    box-shadow: 0 10px 24px rgba(234,88,12,.38), inset 0 1px 0 rgba(255,255,255,.4);
+    transition: transform .12s;
+  }
+  .play:active { transform: scale(.96); }
+  .play.playing { background: linear-gradient(150deg, #6b7280, #4b5563); box-shadow: 0 8px 18px rgba(75,85,99,.3); }
+  .replay {
+    border: 1px solid var(--line); cursor: pointer; border-radius: 999px; padding: 12px 20px;
+    background: #fff; font-size: 14px; font-weight: 700; color: var(--navy);
+    box-shadow: 0 4px 12px rgba(20,43,61,.08);
+  }
+  .hint { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+
+  /* quick actions + input (visual continuity) */
+  .actions { display: flex; gap: 12px; padding: 4px 30px 26px; flex-wrap: wrap; }
+  .act {
+    flex: 1; min-width: 150px; display: flex; align-items: center; gap: 11px;
+    background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 13px 16px;
+    cursor: pointer; font-size: 14px; font-weight: 800; color: var(--navy);
+    box-shadow: 0 4px 12px rgba(20,43,61,.06); transition: transform .12s;
+  }
+  .act:active { transform: scale(.98); }
+  .act .ico { width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; flex: 0 0 auto; }
+  .act.teal .ico { color: var(--teal); background: #E4F5F2; }
+  .act.coral .ico { color: var(--coral); background: #FDECE7; }
+  .act.gold .ico { color: #B98A12; background: #FBF3D9; }
+
+  .inputbar {
+    margin: 0 30px 30px; display: flex; align-items: center; gap: 12px;
+    background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: 7px 8px 7px 14px;
+    box-shadow: 0 10px 26px rgba(20,43,61,.08);
+  }
+  .inputbar .mic-btn {
+    width: 42px; height: 42px; border-radius: 50%; flex: 0 0 auto; border: 2px solid var(--orange);
+    background: #fff; cursor: pointer; display: grid; place-items: center; color: var(--orange-2);
+  }
+  .inputbar input {
+    flex: 1; min-width: 0; border: 0; outline: none; background: transparent;
+    font-size: 14.5px; color: var(--navy);
+  }
+  .inputbar input::placeholder { color: var(--muted); }
+  .inputbar .send-btn {
+    width: 46px; height: 46px; border-radius: 50%; flex: 0 0 auto; border: 0; cursor: pointer;
+    display: grid; place-items: center; color: #fff;
+    background: linear-gradient(150deg, #FB923C, var(--orange-2) 55%, #EA580C);
+    box-shadow: 0 6px 16px rgba(234,88,12,.35);
+  }
+  .safe { text-align: center; font-size: 12px; color: var(--muted); font-weight: 600; padding-bottom: 24px; display: flex; align-items: center; justify-content: center; gap: 7px; }
+  .safe .i { width: 14px; height: 14px; }
+
+  @media (max-width: 720px) {
+    .stage { grid-template-columns: 1fr; padding: 24px 20px; }
+    .avatar-ring { width: 220px; }
+    .bubble::before { display: none; }
+    .bubble .line { font-size: 20px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" aria-hidden="true" style="position:absolute">
+  <defs>
+    <symbol id="i-train" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="5" y="3" width="14" height="13.5" rx="3.5"/><path d="M5 10.5h14"/><circle cx="9" cy="13.6" r=".9" fill="currentColor" stroke="none"/><circle cx="15" cy="13.6" r=".9" fill="currentColor" stroke="none"/><path d="M9 20.2 7.2 22M15 20.2l1.8 1.8M12 16.5v1.8"/>
+    </symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z"/><path d="M7 11a5 5 0 0 0 10 0M12 16v4M9 20h6"/>
+    </symbol>
+    <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 12h12M13 6l6 6-6 6"/>
+    </symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 21.5S5.5 15.6 5.5 10.8a6.5 6.5 0 1 1 13 0c0 4.8-6.5 10.7-6.5 10.7Z"/><circle cx="12" cy="10.6" r="2.4"/>
+    </symbol>
+    <symbol id="i-ticket" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5.5v13" stroke-dasharray="2.2 2.8"/>
+    </symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="app">
+  <header class="topbar">
+    <span class="mark" aria-hidden="true"><svg class="i"><use href="#i-train"/></svg></span>
+    <span>
+      <span class="brand">BookKro Sarthi</span>
+      <span class="status"><i aria-hidden="true"></i>Online</span>
+    </span>
+    <span class="dots" aria-hidden="true"><span></span><span></span><span></span></span>
+  </header>
+
+  <main class="stage">
+    <div class="avatar-wrap">
+      <div class="avatar-ring" id="avatar">
+      <img class="pose on" data-g="0" src="assets/pose-1-namaste.jpg" alt="BookKro Sarthi assistant greeting with folded hands" fetchpriority="high" decoding="async" />
+      <img class="pose" data-g="1" src="assets/pose-2-present.jpg" alt="" aria-hidden="true" decoding="async" loading="lazy" />
+      <img class="pose" data-g="2" src="assets/pose-3-question.jpg" alt="" aria-hidden="true" decoding="async" loading="lazy" />
+      </div>
+      <span class="badge">BookKro Sarthi</span>
+    </div>
+
+    <div class="bubble-col">
+      <div class="who">BookKro Sarthi</div>
+      <div class="bubble">
+        <div class="line" id="line1"></div>
+        <div class="line" id="line2"></div>
+        <div class="line" id="line3"></div>
+      </div>
+      <div class="sub-hi" id="sub-hi" lang="hi" aria-live="polite">
+        <span class="tag">हिन्दी</span><span id="sub-hi-text"></span>
+      </div>
+
+      <div class="controls">
+        <button class="play" id="play" type="button">
+          <svg class="i" aria-hidden="true"><use href="#i-mic"/></svg><span id="play-label">Sunna ▶</span>
+        </button>
+        <button class="replay" id="replay" type="button">Replay</button>
+        <span class="hint" id="hint">Dabaakar dekho — ladki bolegi, words saath print honge.</span>
+      </div>
+    </div>
+  </main>
+
+  <section class="actions">
+    <button class="act teal" type="button"><span class="ico"><svg class="i"><use href="#i-train"/></svg></span>Train search</button>
+    <button class="act coral" type="button"><span class="ico"><svg class="i"><use href="#i-pin"/></svg></span>Live status</button>
+    <button class="act gold" type="button"><span class="ico"><svg class="i"><use href="#i-ticket"/></svg></span>Seat availability</button>
+  </section>
+
+  <div class="inputbar">
+    <button class="mic-btn" type="button" aria-label="Voice"><svg class="i"><use href="#i-mic"/></svg></button>
+    <input type="text" placeholder="Type your message..." spellcheck="false" />
+    <button class="send-btn" type="button" aria-label="Send"><svg class="i"><use href="#i-send"/></svg></button>
+  </div>
+  <div class="safe">
+    <svg class="i" aria-hidden="true"><use href="#i-lock"/></svg>Your conversations are safe with BookKro Sarthi
+  </div>
+</div>
+
+<audio id="audio" src="assets/greeting-hi-full.mp3" preload="auto"></audio>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var audio = $('audio'), playBtn = $('play'), playLabel = $('play-label'),
+      avatar = $('avatar'), hint = $('hint'),
+      l1 = $('line1'), l2 = $('line2'), l3 = $('line3');
+
+  /* three speech-bubble lines (with highlight spans) */
+  var lines = [
+    { el: l1, parts: [{ t: 'Namaste! 🙏', hl: true }] },
+    { el: l2, parts: [{ t: 'Main ', hl: false }, { t: 'BookKro Sarthi', hl: true }, { t: ' hoon.', hl: false }] },
+    { el: l3, parts: [{ t: 'Bataiye, main aapki kaise madad kar sakti hoon?', hl: false }] }
+  ];
+  var subWords = ('नमस्ते! मैं बुककरो एआई हूँ। बताइए, मैं आपकी कैसे मदद कर सकती हूँ?').split(' ');
+  var subEl = document.getElementById('sub-hi-text');
+  var poses = [].slice.call(avatar.querySelectorAll('.pose'));
+  var gesture = -1;
+  function setGesture(g) {
+    if (g === gesture) return;
+    gesture = g;
+    poses.forEach(function (im) {
+      im.classList.toggle('on', Number(im.getAttribute('data-g')) === g);
+    });
+    avatar.setAttribute('data-g', String(g));
+  }
+  function setSubtitle(n) {
+    if (!subEl) return;
+    var a = [];
+    for (var i = 0; i < subWords.length && i < n; i++) a.push(subWords[i]);
+    subEl.textContent = a.join(' ');
+  }
+  setSubtitle(0); setGesture(0);
+
+  /* flatten into ordered tokens: {el, hl, text, words} */
+  var tokens = [];
+  lines.forEach(function (L) {
+    L.parts.forEach(function (p) {
+      tokens.push({ el: L.el, hl: p.hl, text: p.t, words: p.t.split(/\s+/) });
+    });
+  });
+
+  var allWords = [];
+  tokens.forEach(function (tk) {
+    tk.words.forEach(function (w, i) {
+      allWords.push({ el: tk.el, hl: tk.hl, w: w, first: i === 0 });
+    });
+  });
+
+  var playing = false, raf = null, started = 0, duration = 8000;
+
+  function durationMs() {
+    if (audio.duration && isFinite(audio.duration)) return audio.duration * 1000;
+    return duration;
+  }
+  audio.addEventListener('loadedmetadata', function () { duration = durationMs(); });
+
+  function setWord(index) {
+    /* render: build each line's html up to current word */
+    lines.forEach(function (L) { L.el.innerHTML = ''; });
+    allWords.forEach(function (w, i) {
+      if (i > index) return;
+      var span = document.createElement('span');
+      span.textContent = w.w;
+      if (w.hl) span.className = 'hl';
+      w.el.appendChild(span);
+      w.el.appendChild(document.createTextNode(' '));
+    });
+    if (index < allWords.length - 1) {
+      var c = document.createElement('span');
+      c.className = 'caret';
+      lines[lines.length - 1].el.appendChild(c);
+    }
+  }
+
+  function start() {
+    if (playing) return;
+    playing = true;
+    playBtn.classList.add('playing');
+    avatar.classList.add('speaking', 'breath');
+    setGesture(1);
+    playLabel.textContent = 'Bol rahi hoon…';
+    hint.textContent = 'Sun rahe ho? Words saath-saath print ho rahe hain.';
+    started = performance.now();
+    audio.currentTime = 0;
+    var p = audio.play();
+    if (p && p.catch) { p.catch(function () { /* autoplay blocked — text still types */ }); }
+    var N = allWords.length;
+    function frame() {
+      var t = performance.now() - started;
+      var D = durationMs();
+      /* slight hold at start, gentle ease — words finish just before audio ends */
+      var prog = Math.min(1, (t - 200) / (D - 500));
+      var idx = Math.max(0, Math.floor(prog * (N - 1)));
+      setWord(idx);
+      setSubtitle(Math.min(subWords.length, Math.floor(prog * (subWords.length + 1))));
+      setGesture(prog < 0.12 ? 0 : (prog < 0.62 ? 1 : 2));
+      if (t < D && playing) { raf = requestAnimationFrame(frame); }
+      else { end(); }
+    }
+    raf = requestAnimationFrame(frame);
+  }
+
+  function end() {
+    playing = false;
+    if (raf) cancelAnimationFrame(raf);
+    playBtn.classList.remove('playing');
+    avatar.classList.remove('speaking', 'breath');
+    setSubtitle(subWords.length);
+    playLabel.textContent = 'Sunna ▶';
+    hint.textContent = 'Dabaakar dekho — ladki bolegi, words saath print honge.';
+    setWord(allWords.length - 1);
+    setGesture(0);
+    var last = allWords[allWords.length - 1].el;
+    last.innerHTML = last.innerHTML.replace(/<span class="caret"><\/span>/, '');
+  }
+
+  playBtn.addEventListener('click', start);
+  $('replay').addEventListener('click', function () {
+    if (playing) { playing = false; if (raf) cancelAnimationFrame(raf); }
+    audio.pause(); audio.currentTime = 0;
+    start();
+  });
+  audio.addEventListener('ended', end);
+
+  /* show the greeting instantly if no audio (fallback) */
+  setWord(-1);
+  if (!audio.canPlayType || !audio.canPlayType('audio/mpeg')) {
+    hint.textContent = 'Audio is browser mein play nahi hoga — phir bhi text type hokar dikhega.';
+  }
+})();
+</script>
+</body>
+</html>
