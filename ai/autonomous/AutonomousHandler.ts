@@ -3,34 +3,22 @@
  *
  * This is the main entry that the server calls on every user message.
  * It:
- *   1. Runs the AutonomousIntentEngine to deeply understand the user
- *      (Hindi/Hinglish/English, typos, multi-intent, follow-ups, corrections).
- *   2. Decides autonomously what to do next:
- *        - Ask a clarifying question if information is missing.
- *        - Answer directly (greetings, thanks, small-talk, help, off-topic).
- *        - Call the deterministic tool layer (railway APIs via Router).
- *        - Pause/resume booking flow as needed.
- *        - Handle corrections, go-back, start-over, hold.
+ *   1. Runs the AutonomousIntentEngine to deeply understand the user.
+ *   2. Decides autonomously what to do next.
  *   3. Generates natural, conversational replies via AutonomousReplyGenerator.
- *   4. Maintains ConversationContext across turns (fills slots, resolves refs,
- *      tracks corrections, pauses/resumes booking).
+ *   4. Maintains ConversationContext across turns.
  *
- * In short: the AI "samajh leta hai" user intent, khud hi solutions find karta
- * hai, aur poora customer intent handle karta hai — bilkul ChatGPT ki tarah.
- *
- * Safety invariants (PRESERVED from the original codebase):
+ * Safety invariants PRESERVED:
  *   - AI UNDERSTANDS but NEVER executes directly.
- *   - Every tool call goes through the validated ToolRegistry + RailwayProviderRouter
- *     (RailCore primary → RailKit fallback).
- *   - confirmBooking / wallet mutations stay DETERMINISTIC_ONLY — AI can never
- *     execute them; at most it can request them (and is rejected by guards).
+ *   - Every tool call goes through the validated ToolRegistry + RailwayProviderRouter.
+ *   - confirmBooking / wallet mutations stay DETERMINISTIC_ONLY.
  *   - Hallucination guard: when tools return no data, honest "unavailable" wins.
  */
 
-import type { ConversationContext, ToolResult } from '../../shared/index.js';
+import type { ConversationContext, ToolResult, Station } from '../../shared/index.js';
 import { setContextSlots, savePausedBooking, restorePausedBooking } from '../../shared/index.js';
 import type { ToolRegistry } from '../../tools/index.js';
-import { isAiSelectableTool } from '../../api/ai/tool-catalog.js';
+import { validateToolArguments, isAiSelectableTool } from '../../api/ai/tool-catalog.js';
 import { executeAiToolCalls } from '../../api/ai/tool-executor.js';
 import type { AiToolCallRequest } from '../../api/ai/tool-executor.js';
 import { semanticToolToCatalogId } from '../../api/ai/semantic-tools.js';
@@ -38,14 +26,15 @@ import { understandAutonomously } from './AutonomousIntentEngine.js';
 import type { AutonomousUnderstanding, ExtractedEntity } from './AutonomousIntentEngine.js';
 import type { TravelClassCode } from '../../shared/types/railway.js';
 import { generateReply } from './AutonomousReplyGenerator.js';
-import { resolveDateText } from '../slotResolution.js';
+import { resolveDateText, stationFromLookup } from '../slotResolution.js';
 import { composeKnowledgeAnswer } from '../../shared/railwayKnowledge.js';
+import { newId } from '../../shared/ids.js';
+import type { ToolCall } from '../../shared/types/tools.js';
 
 export interface AutonomousHandlerInput {
   message: string;
   conversationId: string | null;
   context: ConversationContext;
-  /** Optional real AI model client — if provided, used for enhanced phrasing. */
   aiPhraser?: { phrase: (context: string) => Promise<string | null> } | null;
 }
 
@@ -73,10 +62,41 @@ export interface AutonomousHandlerOutput {
   };
 }
 
-// ── Entity → slot mapping ────────────────────────────────────────────────────
-
 function getEntityValue(entities: ExtractedEntity[], type: ExtractedEntity['type']): unknown {
   return entities.find((e) => e.type === type)?.value ?? null;
+}
+
+/** Resolve a free-text station name → Station via lookupStation (same as semantic-orchestrator). */
+async function resolveStationName(
+  registry: ToolRegistry,
+  query: string,
+  conversationId: string | null,
+  now: Date,
+): Promise<{ station: Station | null; ambiguous: Station[] | null }> {
+  const validation = validateToolArguments('LOOKUP_STATION', { query });
+  if (!validation.ok) return { station: null, ambiguous: null };
+  const call: ToolCall = {
+    id: newId('astn'), tool: 'lookupStation', input: validation.sanitized,
+    requestedBy: 'SERVER', conversationId, createdAt: now.toISOString(),
+  };
+  const result = await registry.execute(call, { actor: 'SERVER', userId: null, conversationId, call });
+  if (!result.ok) return { station: null, ambiguous: null };
+  const stations = (result.data as Station[] | null) ?? [];
+  const unique: Station[] = [];
+  const seen = new Set<string>();
+  for (const s of stations) {
+    const code = (s.code ?? '').toUpperCase();
+    if (!code || seen.has(code)) continue;
+    seen.add(code); unique.push(s);
+  }
+  const byCode = unique.filter((s) => s.code.toUpperCase() === query.toUpperCase());
+  if (byCode.length === 1 && byCode[0]) return { station: byCode[0], ambiguous: null };
+  const resolved = stationFromLookup(query, unique);
+  if (resolved.station) return { station: resolved.station, ambiguous: null };
+  if (unique.length === 1) return { station: unique[0]!, ambiguous: null };
+  if (resolved.choiceNeeded && resolved.choiceNeeded.length > 0) return { station: null, ambiguous: resolved.choiceNeeded };
+  if (unique.length > 1) return { station: null, ambiguous: unique };
+  return { station: null, ambiguous: null };
 }
 
 // ── Main handler ─────────────────────────────────────────────────────────────
@@ -87,31 +107,27 @@ export async function handleAutonomously(
 ): Promise<AutonomousHandlerOutput> {
   const now = deps.now ?? (() => new Date());
   let context = { ...input.context };
-  let contextUpdatedAt = now().toISOString();
+  const contextUpdatedAt = now().toISOString();
   const correctionsApplied: string[] = [];
   let resumedPausedBooking = false;
 
-  // 1) UNDERSTAND the user.
   const u = understandAutonomously(input.message, context);
 
-  // 2) Handle META intents that don't need tools and don't mutate booking state much.
-
+  // ── HOLD ──
   if (u.primaryIntent === 'HOLD_PAUSE' && context.bookingStage && context.bookingStage !== 'IDLE') {
-    // Save paused booking and acknowledge.
     context = {
       ...savePausedBooking(context, 'USER_INTERRUPTION', contextUpdatedAt),
       pendingQuestion: 'Theek hai, hold par hoon. Jab continue karna ho "chalo" keh dena!',
       updatedAt: contextUpdatedAt,
     };
-    const reply = generateReply({ understanding: u, context });
-    return finalize(reply.text, u, [], null, null, context, correctionsApplied, resumedPausedBooking);
+    return finalize(context.pendingQuestion!, u, [], null, null, context, correctionsApplied, resumedPausedBooking);
   }
 
-  if (u.primaryIntent === 'RESUME' && context.pausedBooking) {
+  if (u.primaryIntent === 'RESUME' && (context as any).pausedBooking) {
     context = { ...restorePausedBooking(context, contextUpdatedAt), updatedAt: contextUpdatedAt };
     resumedPausedBooking = true;
-    const reply = generateReply({ understanding: u, context, pendingQuestion: context.pendingQuestion });
-    return finalize(reply.text, u, [], null, null, context, correctionsApplied, resumedPausedBooking);
+    const pending = context.pendingQuestion ?? 'Aage badhte hain?';
+    return finalize(pending, u, [], null, null, context, correctionsApplied, resumedPausedBooking);
   }
 
   if (u.primaryIntent === 'START_OVER') {
@@ -125,147 +141,181 @@ export async function handleAutonomously(
       stationChoices: null, pendingStationResolution: null, pendingSemanticPlan: null,
       updatedAt: contextUpdatedAt,
     };
-    const reply = generateReply({ understanding: u, context });
-    return finalize(reply.text, u, [], null, null, context, correctionsApplied, resumedPausedBooking);
+    const reply = 'Naye sire se shuru karte hain. 🔄 Batayein kaha se kaha jaana hai aur kab?';
+    return finalize(reply, u, [], null, null, context, correctionsApplied, resumedPausedBooking);
   }
 
-  // 3) Apply CORRECTIONS if detected.
+  // ── CORRECTIONS ──
   if (u.isCorrection && u.correctionTarget) {
     const target = u.correctionTarget;
     const val = getEntityValue(u.entities, target as ExtractedEntity['type']);
     if (val !== null && val !== undefined) {
       const slot: Record<string, unknown> = {};
       switch (target) {
-        case 'travelClass': slot.selectedClass = val as TravelClassCode; context.selectedClass = val as TravelClassCode; break;
-        case 'journeyDate': slot.journeyDate = resolveDateText(String(val), now()) ?? val; break;
-        case 'trainNumber': slot.selectedTrain = context.selectedTrain ? { ...context.selectedTrain, number: String(val) } : { number: String(val), name: null }; break;
+        case 'travelClass': slot.selectedClass = val as TravelClassCode; break;
+        case 'journeyDate': { const r = resolveDateText(String(val), now()); if (r) slot.journeyDate = r; break; }
+        case 'trainNumber': slot.selectedTrain = { ...(context.selectedTrain ?? emptyTrain()), number: String(val) }; break;
         case 'passengerCount': slot.passengerCount = Number(val); break;
       }
       if (Object.keys(slot).length > 0) {
         context = setContextSlots(context, slot, 'CORRECT', contextUpdatedAt);
         correctionsApplied.push(target);
-        // Invalidate downstream booking state.
         if (['origin', 'destination', 'journeyDate', 'trainNumber'].includes(target)) {
-          context = { ...context, lastSearchResults: [], selectedClass: null, bookingStage: target === 'trainNumber' ? context.bookingStage : 'IDLE' };
+          context = { ...context, lastSearchResults: [], selectedClass: null };
         }
       }
     }
   }
 
-  // 4) Slot filling from entities (when not a correction and slots are empty).
-  const fillSlot = <K extends keyof ConversationContext>(key: K, value: ConversationContext[K]) => {
-    if (context[key] === null || context[key] === undefined) {
-      context = { ...context, [key]: value, updatedAt: contextUpdatedAt };
-    }
-  };
-  const origin = getEntityValue(u.entities, 'origin') as string | null;
-  const dest = getEntityValue(u.entities, 'destination') as string | null;
-  const date = getEntityValue(u.entities, 'journeyDate') as string | null;
-  const train = getEntityValue(u.entities, 'trainNumber') as string | null;
-  const tclass = getEntityValue(u.entities, 'travelClass') as string | null;
-  const pcount = getEntityValue(u.entities, 'passengerCount') as number | null;
-
-  // Also extract stations here (needed for answer-to-pending logic).
-  const stations = (function () {
-    // Lightweight station extraction for answers like "Ludhiana"
-    const text = u.normalizedMessage;
-    const seMatch = text.match(/([a-z\u0900-\u097F\s]{2,30}?)\s+se\s/i);
-    const fromMatch = text.match(/from\s+([a-z\s]{2,30}?)(?:\s|$|,)/i);
-    return { origin: (seMatch?.[1] ?? fromMatch?.[1] ?? '').trim() || null, destination: null };
-  })();
-
-  // Handle short answers to pending questions.
+  // ── Short answer to pending question → fill that field ──
   if (u.isAnswerToPendingQuestion && u.pendingQuestionField) {
     const field = u.pendingQuestionField;
     const rawMsg = input.message.trim().toLowerCase();
     const patch: Record<string, unknown> = {};
-    if (field === 'journeyDate' || field === 'date') {
-      const resolved = date ? (resolveDateText(String(date), now()) ?? date) : resolveDateText(rawMsg, now());
-      if (resolved) patch.journeyDate = resolved;
-    } else if ((field === 'origin' || field === 'from') && (origin || stations.origin)) {
-      const v = origin ?? stations.origin;
-      patch.origin = { code: String(v).toUpperCase(), name: String(v), zone: null, state: null, latitude: null, longitude: null };
-    } else if (field === 'destination' && dest) {
-      patch.destination = { code: String(dest).toUpperCase(), name: String(dest), zone: null, state: null, latitude: null, longitude: null };
-    } else if (field === 'passengerCount' && pcount) {
-      patch.passengerCount = pcount;
-    } else if (field === 'selectedClass' && tclass) {
-      patch.selectedClass = tclass;
-    } else if (field === 'selectedTrain' && train) {
-      patch.selectedTrain = { ...(context.selectedTrain ?? { name: null, originStation: null, destinationStation: null, departureTime: null, arrivalTime: null, runsOn: null, travelClasses: null, pantryCar: null }), number: String(train) };
-    }
+    const resolvedDate = (() => { const d = getEntityValue(u.entities, 'journeyDate'); return d ? (resolveDateText(String(d), now()) ?? resolveDateText(rawMsg, now())) : resolveDateText(rawMsg, now()); })();
+    if ((field === 'journeyDate' || field === 'date') && resolvedDate) patch.journeyDate = resolvedDate;
+    else if (field === 'passengerCount') { const c = getEntityValue(u.entities, 'passengerCount'); if (c) patch.passengerCount = c; }
+    else if (field === 'selectedClass') { const c = getEntityValue(u.entities, 'travelClass'); if (c) patch.selectedClass = c; }
     if (Object.keys(patch).length > 0) {
       context = setContextSlots(context, patch, 'FILL_MISSING', contextUpdatedAt);
     }
+    // If answer was a station name for origin/destination, resolve below in the station step.
     context = { ...context, lastAskedField: null, pendingQuestion: null, updatedAt: contextUpdatedAt };
   }
 
-  if (origin) fillSlot('origin' as any, { code: origin.toUpperCase(), name: origin, zone: null, state: null, latitude: null, longitude: null });
-  if (dest) fillSlot('destination' as any, { code: dest.toUpperCase(), name: dest, zone: null, state: null, latitude: null, longitude: null });
-  if (date) {
-    const resolved = resolveDateText(String(date), now());
-    if (resolved) fillSlot('journeyDate' as any, resolved);
-    else fillSlot('journeyDate' as any, date);
-  }
-  if (train) fillSlot('selectedTrain' as any, { ...(context.selectedTrain ?? { name: null, originStation: null, destinationStation: null, departureTime: null, arrivalTime: null, runsOn: null, travelClasses: null, pantryCar: null }), number: String(train) });
-  if (tclass) fillSlot('selectedClass' as any, tclass);
-  if (pcount) fillSlot('passengerCount' as any, pcount);
+  // ── Slot filling: origin/destination names to be resolved via lookupStation.
+  // We only fill slots that are EMPTY (don't overwrite already-verified stations).
+  const fillIfEmpty = <K extends keyof ConversationContext>(key: K, value: ConversationContext[K]) => {
+    if (context[key] === null || context[key] === undefined) {
+      context = { ...context, [key]: value, updatedAt: contextUpdatedAt };
+    }
+  };
+  let originName: string | null = getEntityValue(u.entities, 'origin') as string | null;
+  let destName: string | null = getEntityValue(u.entities, 'destination') as string | null;
+  let train = getEntityValue(u.entities, 'trainNumber') as string | null;
+  let tclass = getEntityValue(u.entities, 'travelClass') as TravelClassCode | null;
+  let pcount = getEntityValue(u.entities, 'passengerCount') as number | null;
+  let date = getEntityValue(u.entities, 'journeyDate') as string | null;
+  const resolvedDate = date ? resolveDateText(String(date), now()) : null;
+  if (resolvedDate) fillIfEmpty('journeyDate' as any, resolvedDate);
+  else if (date) fillIfEmpty('journeyDate' as any, date);
+  if (train && !context.selectedTrain) fillIfEmpty('selectedTrain' as any, { ...emptyTrain(), number: String(train) });
+  if (tclass) fillIfEmpty('selectedClass' as any, tclass);
+  if (pcount) fillIfEmpty('passengerCount' as any, pcount);
 
-  // 5) META intents that require no tool — answer directly.
+  // If short answer for origin/destination, treat the raw message as the name.
+  if (u.isAnswerToPendingQuestion && u.pendingQuestionField === 'origin' && !originName) originName = input.message.trim();
+  if (u.isAnswerToPendingQuestion && u.pendingQuestionField === 'destination' && !destName) destName = input.message.trim();
+
+  // ── Resolve station names → verified Station objects via lookupStation.
+  async function resolveAndSetStation(field: 'origin' | 'destination', name: string | null) {
+    if (!name) return;
+    // Don't overwrite if we already have a verified station (has code, name came from code path).
+    if (field === 'origin' && context.origin?.code && !looksLikePlaceholder(context.origin)) return;
+    if (field === 'destination' && context.destination?.code && !looksLikePlaceholder(context.destination)) return;
+    const r = await resolveStationName(deps.registry, name, input.conversationId, now());
+    if (r.ambiguous && r.ambiguous.length > 1) {
+      const fieldLabel = field === 'origin' ? 'kaha se (from station)' : 'kaha tak (to station)';
+      const options = r.ambiguous.map((s) => `${s.name}${s.code ? ` (${s.code})` : ''}`).join('\n   • ');
+      context = {
+        ...context,
+        lastAskedField: field as any,
+        pendingQuestion: `${fieldLabel} ke liye multiple options mil gaye — kaunsa hai?\n   • ${options}`,
+        stationChoices: { field, options: r.ambiguous, askedAt: contextUpdatedAt },
+        updatedAt: contextUpdatedAt,
+      };
+      return 'ambiguous';
+    }
+    if (r.station) {
+      context = setContextSlots(context, { [field]: r.station } as any, 'FILL_MISSING', contextUpdatedAt);
+      return 'resolved';
+    }
+    return null;
+  }
+
+  function looksLikePlaceholder(s: Station): boolean {
+    // A placeholder station has code == uppercased name (we set this initially but it's not provider-verified).
+    return s.code === (s.name ?? "").toUpperCase() && s.zone === null;
+  }
+
+  // Resolve both stations (serially, simple).
+  const originRes = await resolveAndSetStation('origin', originName);
+  const destRes = await resolveAndSetStation('destination', destName);
+  if (originRes === 'ambiguous' || destRes === 'ambiguous') {
+    return finalize(context.pendingQuestion!, u, [], null, null, context, correctionsApplied, resumedPausedBooking);
+  }
+
+  // ── META intents (no tool calls needed) ──
   if (u.requiresNoTools) {
-    let replyText = '';
-    switch (u.primaryIntent) {
-      case 'GREETING': replyText = pick([
+    const META_REPLIES: Record<string, string> = {
+      GREETING: pick([
         'Namaste! 🙏 BookKaro mein aapka swagat hai. Main trains search, availability, fare, live status, PNR, booking — sab kuch kar sakta hoon. Batayein kya chahiye?',
         'Hi! Main BookKaro AI hoon — aapka apna railway assistant. Trains, tickets, PNR, live status, booking, cancellation — sab kuch. Batayein kaise madad karoon?',
-      ]); break;
-      case 'FAREWELL': replyText = pick([
+        'Hello ji! 😊 Aaj kya karna hai? Trains dekhni hain? Ticket book karni hai? Ya kisi train ka status chahiye? Bataiye main hoon na!',
+      ]),
+      FAREWELL: pick([
         'Alvida! 🚂 Baad mein kabhi bhi aa jana — ticket chahiye ya kuch bhi, yaad kar lena. Safe travels!',
         'Bye bye! Apna khayal rakhna. Jab ticket chahiye BookKaro hai na! 😊',
-      ]); break;
-      case 'THANKS': replyText = pick(['Aapka swagat hai! 😊 Aur chahiye ho to batana.', 'Koi baat nahi! Yahi hoon main.', 'Dhanyavaad! 🙏']); break;
-      case 'PRAISE': replyText = pick(['Shukriya! 🙏 Aapke liye better service dete rahenge.', 'Bahut dhanyavaad! 🌟']); break;
-      case 'COMPLAINT':
-      case 'FRUSTRATION':
-        replyText = 'Maaf kijiye pareshani ke liye 🙏. Thoda detail mein batayein kya galat hua — main turant solve karunga.'; break;
-      case 'HELP':
-      case 'CAPABILITY_QUERY':
-        replyText = `Main BookKaro AI hoon — aapka railway assistant. Main kar sakta hoon:\n\n🚆 Trains search (kisi bhi route/date)\n🎫 Seat availability\n💰 Fare dikhana\n📍 Live train status\n📋 Timetable/stops\n🔢 PNR status\n❌ Cancelled trains\n🆚 Train comparison (kaunsi better/tez)\n🛒 Ticket booking (multi-passenger)\n💼 Wallet / booking history\n❓ Railway rules / glossary (tatkal, RAC, classes)\n\nBas Hindi/Hinglish/English mein poochhiye! 😊`;
-        break;
-      case 'AFFIRMATION':
-        replyText = pick(['Theek hai! 👍', 'Bilkul!', 'Samajh gaya!']); break;
-      case 'NEGATION':
-        replyText = 'Theek hai, koi baat nahi. Batayein kya chahiye?'; break;
-      case 'GO_BACK':
-        replyText = 'Theek hai, ek step peeche chalte hain 🔙. Ab kya change karna hai?'; break;
-      case 'CORRECTION':
-        replyText = 'Theek hai, update kar diya ✏️. Aur batayein.'; break;
-      case 'NORMAL_CHAT':
-      default:
-        replyText = 'Main railway ka specialist hoon ji — is topic par meri training nahi hai. Par trains, tickets, PNR, booking, fare ya Indian Railways se related kuch bhi poochhiye, turant jawab dunga! 😊';
-    }
+      ]),
+      THANKS: pick(['Aapka swagat hai! 😊 Aur chahiye ho to batana.', 'Koi baat nahi! Yahi hoon main.', 'Dhanyavaad! 🙏']),
+      PRAISE: pick(['Shukriya! 🙏 Aapke liye better service dete rahenge.', 'Bahut dhanyavaad! 🌟']),
+      FRUSTRATION: 'Maaf kijiye pareshani ke liye 🙏. Thoda detail mein batayein kya galat hua — main turant solve karunga.',
+      COMPLAINT: 'Maaf kijiye pareshani ke liye 🙏. Thoda detail mein batayein kya galat hua — main turant solve karunga.',
+      HELP: `Main BookKaro AI hoon — aapka railway assistant. Main kar sakta hoon:\n\n🚆 Trains search (kisi bhi route/date)\n🎫 Seat availability\n💰 Fare dikhana\n📍 Live train status\n📋 Timetable/stops\n🔢 PNR status\n❌ Cancelled trains\n🆚 Train comparison (kaunsi better/tez)\n🛒 Ticket booking (multi-passenger)\n💼 Wallet / booking history\n❓ Railway rules / glossary (tatkal, RAC, classes)\n\nBas Hindi/Hinglish/English mein poochhiye! 😊`,
+      CAPABILITY_QUERY: `Main BookKaro AI hoon — aapka railway assistant. Main kar sakta hoon:\n\n🚆 Trains search\n🎫 Seat availability\n💰 Fare\n📍 Live status\n📋 Timetable\n🔢 PNR\n❌ Cancelled trains\n🆚 Compare\n🛒 Booking\n💼 Wallet / history\n❓ Railway rules\n\nBas Hindi/Hinglish/English mein poochhiye! 😊`,
+      AFFIRMATION: pick(['Theek hai! 👍', 'Bilkul!', 'Samajh gaya!']),
+      NEGATION: 'Theek hai, koi baat nahi. Batayein kya chahiye?',
+      GO_BACK: 'Theek hai, ek step peeche chalte hain 🔙. Ab kya change karna hai?',
+      RESUME: 'Chalo, wapas booking par aate hain. Jahan ruke the wahi se continue karte hain.',
+      HOLD_PAUSE: 'Ruko ji, hold par hoon. ⏸️ Jab taiyyar ho jao "chalo" keh dena — wahin se shuru karenge.',
+      START_OVER: 'Naye sire se shuru karte hain. 🔄 Batayein kaha se kaha jaana hai aur kab?',
+      REPEAT_REQUEST: 'Theek hai, ek baar aur bata raha hoon:',
+      NORMAL_CHAT: 'Main railway ka specialist hoon ji — is topic par meri training nahi hai. Par trains, tickets, PNR, booking, fare ya Indian Railways se related kuch bhi poochhiye, turant jawab dunga! 😊',
+    };
+    const replyText = META_REPLIES[u.primaryIntent] ?? 'Theek hai! Aur batayein kya chahiye?';
     return finalize(replyText, u, [], null, null, context, correctionsApplied, resumedPausedBooking);
   }
 
-  // 6) GENERAL RAILWAY QUERY (knowledge base, no tool call to external data).
+  // ── GENERAL RAILWAY QUERY ──
   if (u.primaryIntent === 'GENERAL_RAILWAY_QUERY') {
-    // Use the approved glossary + knowledge composer.
-    const query = (getEntityValue(u.entities, 'reference') || input.message) as string;
-    const answer = composeKnowledgeAnswer(query);
+    const answer = composeKnowledgeAnswer(input.message);
     const text = answer
       ? `${answer.answer}\n\nAur kuch railway related jaanna ho to batayein! 😊`
       : 'Railway ke rules/class/quota ke baare mein main approved knowledge se hi batata hoon. Thoda specific poochhiye — jaise "CC kya hota hai?", "tatkal kitne baje khulta hai?" etc.';
     return finalize(text, u, ['getRailwayKnowledge'], null, null, context, correctionsApplied, resumedPausedBooking);
   }
 
-  // 7) Build tool plan from understanding.suggestedTools.
+  // ── Build tool plan ──
+  const TOOL_MAP: Record<string, string[]> = {
+    BOOK_TRAIN: ['searchTrains'], SEARCH_TRAIN: ['searchTrains'],
+    LIVE_TRAIN_STATUS: ['getLiveStatus'], GET_AVAILABILITY: ['getAvailability'],
+    GET_FARE: ['getFare'], GET_TRAIN_INFO: ['getTrainInfo'], GET_TIMETABLE: ['getTimetable'],
+    LOOKUP_STATION: ['lookupStation'], CHECK_PNR: ['checkPNR'],
+    VIEW_BOOKINGS: ['getBookings'], VIEW_WALLET: ['getWallet'],
+    GET_CANCELLED_TRAINS: ['getCancelledTrains'], COMPARE_TRAINS: ['compareTrains'],
+    CHECK_CHART_STATUS: ['getLiveStatus'], PLATFORM_INQUIRY: ['getLiveStatus'],
+    COACH_POSITION: ['getLiveStatus'], CHECK_REFUND: ['getRailwayKnowledge'],
+  };
+  const REGISTRY_TO_CATALOG: Record<string, string> = {
+    searchTrains: 'SEARCH_TRAINS', lookupStation: 'LOOKUP_STATION',
+    getTrainInfo: 'GET_TRAIN_INFO', getTimetable: 'GET_TIMETABLE',
+    getLiveStatus: 'GET_LIVE_STATUS', getAvailability: 'CHECK_AVAILABILITY',
+    getFare: 'GET_FARE', checkPNR: 'GET_PNR', getCancelledTrains: 'GET_CANCELLED_TRAINS',
+    getBookings: 'GET_BOOKINGS', getWallet: 'GET_WALLET', compareTrains: 'COMPARE_TRAINS',
+    getRailwayKnowledge: 'RAILWAY_KNOWLEDGE',
+  };
+
   const toolCalls: AiToolCallRequest[] = [];
-  const toolArgs = (toolName: string): Record<string, unknown> => {
+  function buildArgs(toolRegistryName: string): Record<string, unknown> {
     const args: Record<string, unknown> = {};
-    switch (toolName) {
+    switch (toolRegistryName) {
       case 'searchTrains':
+        // Use station NAMES here — executeAiToolCalls -> validateToolArguments
+        // will resolve via the catalog; for now pass codes if we have them, else names.
         if (context.origin?.code) args.originCode = context.origin.code;
+        else if (originName) args.originCode = originName;
         if (context.destination?.code) args.destinationCode = context.destination.code;
+        else if (destName) args.destinationCode = destName;
         if (context.journeyDate) args.journeyDate = context.journeyDate;
         break;
       case 'getLiveStatus':
@@ -298,51 +348,41 @@ export async function handleAutonomously(
       case 'getCancelledTrains':
         if (context.journeyDate) args.journeyDate = context.journeyDate;
         break;
-      case 'lookupStation': {
-        const stationName = (getEntityValue(u.entities, 'station') || getEntityValue(u.entities, 'origin') || getEntityValue(u.entities, 'destination')) as string | null;
-        if (stationName) args.query = stationName;
-        break;
-      }
-      case 'getBookings':
-      case 'getWallet':
-        break;
     }
     return args;
-  };
+  }
 
-  // Map registry names → catalog IDs for the tool executor.
-  const REGISTRY_TO_CATALOG: Record<string, string> = {
-    searchTrains: 'SEARCH_TRAINS', lookupStation: 'LOOKUP_STATION',
-    getTrainInfo: 'GET_TRAIN_INFO', getTimetable: 'GET_TIMETABLE',
-    getLiveStatus: 'GET_LIVE_STATUS', getAvailability: 'CHECK_AVAILABILITY',
-    getFare: 'GET_FARE', checkPNR: 'GET_PNR', getCancelledTrains: 'GET_CANCELLED_TRAINS',
-    getBookings: 'GET_BOOKINGS', getWallet: 'GET_WALLET', compareTrains: 'COMPARE_TRAINS',
-    getRailwayKnowledge: 'RAILWAY_KNOWLEDGE',
-  };
+  const desired = TOOL_MAP[u.primaryIntent];
+  const allTools = desired ? [...desired] : [];
+  if (u.primaryIntent === 'MULTI_INTENT') {
+    for (const si of u.subIntents) {
+      const t = TOOL_MAP[si];
+      if (t) allTools.push(...t);
+    }
+  }
 
-  for (const toolName of u.suggestedTools) {
-    // Accept both registry names (searchTrains) and catalog IDs (SEARCH_TRAINS).
-    let catalogId = semanticToolToCatalogId(toolName);
-    if (!catalogId) catalogId = REGISTRY_TO_CATALOG[toolName] ?? (toolName.toUpperCase() === toolName ? toolName : null);
+  for (const tn of allTools) {
+    let catalogId = semanticToolToCatalogId(tn);
+    if (!catalogId) catalogId = REGISTRY_TO_CATALOG[tn] ?? null;
     if (!catalogId || !isAiSelectableTool(catalogId)) continue;
-    const args = toolArgs(toolName) ?? {};
+    const args = buildArgs(tn);
     toolCalls.push({ tool: catalogId, args });
   }
 
-  // 8) Missing slots — ask for ONE thing at a time (never overwhelm user).
+  // Pause booking if this is an informational query mid-booking.
+  const isInfoQuery = ['LIVE_TRAIN_STATUS', 'GET_FARE', 'GET_AVAILABILITY', 'GET_TIMETABLE', 'GET_TRAIN_INFO', 'CHECK_PNR', 'CHECK_CHART_STATUS', 'PLATFORM_INQUIRY', 'COACH_POSITION', 'CHECK_REFUND', 'COMPARE_TRAINS', 'GET_CANCELLED_TRAINS'].includes(u.primaryIntent);
+  if (isInfoQuery && context.bookingStage && context.bookingStage !== 'IDLE' && !(context as any).pausedBooking) {
+    context = savePausedBooking(context, 'USER_INTERRUPTION', contextUpdatedAt);
+  }
+
+  // Ask for missing info one field at a time.
   if (u.missingSlots.length > 0) {
     const first = u.missingSlots[0]!;
     context = { ...context, lastAskedField: first.field as any, pendingQuestion: first.question, updatedAt: contextUpdatedAt };
     return finalize(first.question, u, [], null, null, context, correctionsApplied, resumedPausedBooking);
   }
 
-  // 9) If informational query mid-booking, PAUSE the booking before answering.
-  const isInfoQuery = ['LIVE_TRAIN_STATUS', 'GET_FARE', 'GET_AVAILABILITY', 'GET_TIMETABLE', 'GET_TRAIN_INFO', 'CHECK_PNR', 'CHECK_CHART_STATUS', 'PLATFORM_INQUIRY', 'COACH_POSITION', 'CHECK_REFUND', 'COMPARE_TRAINS', 'GET_CANCELLED_TRAINS'].includes(u.primaryIntent);
-  if (isInfoQuery && context.bookingStage && context.bookingStage !== 'IDLE' && !context.pausedBooking) {
-    context = savePausedBooking(context, 'USER_INTERRUPTION', contextUpdatedAt);
-  }
-
-  // 10) EXECUTE tools (through validated server-side boundary).
+  // Execute tools.
   let toolResults: ToolResult[] = [];
   const executedTools: string[] = [];
   if (toolCalls.length > 0) {
@@ -357,107 +397,76 @@ export async function handleAutonomously(
     }
   }
 
-  // 11) RESUME paused booking after answering an informational query.
-  if (u.resumeAfterAnswer && context.pausedBooking) {
+  // Resume paused booking after answer.
+  if (u.resumeAfterAnswer && (context as any).pausedBooking) {
     context = restorePausedBooking(context, contextUpdatedAt);
     resumedPausedBooking = true;
   }
 
-  // 11b) Intent-aware reply when no tool results available (e.g. keyless demo).
+  const anyOkToolResult = toolResults.some((t) => t.ok === true && t.data !== null && t.data !== undefined);
+
+  // Intent-aware honest ack when tools didn't return data (keyless/demo/offline).
   const intentAck: Record<string, string> = {
-    LIVE_TRAIN_STATUS: 'Samajh gaya — aap live status dekhna chahte hain. Abhi demo mode mein railway data source connect nahi hai, isliye real-time status fetch nahi ho pa raha.',
-    GET_FARE: 'Samajh gaya — fare dekhna chahte hain. Abhi demo mode mein real railway data available nahi hai.',
-    GET_AVAILABILITY: 'Samajh gaya — availability check karni hai. Demo mode mein live provider connect nahi, isliye abhi seat status nahi bata pa raha.',
-    GET_TIMETABLE: 'Samajh gaya — timetable/route dekhna chahte hain. Demo mode mein data fetch nahi ho pa raha.',
-    GET_TRAIN_INFO: 'Samajh gaya — train ki info chahiye. Demo mode mein data source connect nahi hai.',
-    CHECK_PNR: 'Samajh gaya — PNR status check karna hai. Demo mode mein PNR API connect nahi, real key configure karne par PNR status dikh jaayega.',
-    GET_CANCELLED_TRAINS: 'Samajh gaya — cancelled trains dekhni hain. Demo mode mein provider data available nahi.',
-    LOOKUP_STATION: 'Samajh gaya — station code chahiye. Demo mode mein station lookup API connect nahi.',
-    VIEW_WALLET: 'Samajh gaya — wallet balance dekhna chahte hain. Demo mode mein wallet service active nahi hai.',
-    VIEW_BOOKINGS: 'Samajh gaya — booking history dikhani hai. Demo mode mein user bookings store nahi ho rahi.',
-    CHECK_CHART_STATUS: 'Samajh gaya — chart status dekhna chahte hain. Ye information live provider se hi milti hai — demo mode mein available nahi.',
-    CHECK_REFUND: 'Samajh gaya — refund ke baare mein poochh rahe hain. Refund ke liye thoda specific poochhiye, ya main apne approved knowledge se answer deta hoon.',
-    PLATFORM_INQUIRY: 'Samajh gaya — platform number jaanna chahte hain. Ye real-time data railway provider se milta hai — demo mode mein available nahi.',
-    COACH_POSITION: 'Samajh gaya — coach position dekhni hai. Chart banne ke baad ye info milti hai — demo mode mein available nahi.',
-    COMPARE_TRAINS: 'Samajh gaya — compare karna chahte hain. Demo mode mein train data fetch nahi ho pa raha.',
-    GENERAL_RAILWAY_QUERY: 'Iske baare mein mujhe approved railway knowledge mein exact answer nahi mil raha. Thoda specific poochhiye — jaise "CC kya hota hai?", "tatkal kitne baje khulta hai?"',
-    BOOK_TRAIN: 'Samajh gaya — aap ticket book karna chahte hain!',
-    SEARCH_TRAIN: 'Samajh gaya — trains search karni hain.',
+    LIVE_TRAIN_STATUS: 'Samajh gaya — aap live status dekhna chahte hain. Live status railway provider se real-time fetch hota hai; abhi data source se response nahi mila.',
+    GET_FARE: 'Samajh gaya — fare dekhna chahte hain. Abhi fare data fetch nahi ho pa raha.',
+    GET_AVAILABILITY: 'Samajh gaya — availability check karni hai. Abhi seat status data fetch nahi ho pa raha.',
+    GET_TIMETABLE: 'Samajh gaya — timetable/route dekhna chahte hain. Abhi data fetch nahi ho pa raha.',
+    GET_TRAIN_INFO: 'Samajh gaya — train ki info chahiye. Abhi data source se response nahi mila.',
+    CHECK_PNR: 'Samajh gaya — PNR status check karna hai. Abhi PNR data fetch nahi ho pa raha.',
+    GET_CANCELLED_TRAINS: 'Samajh gaya — cancelled trains dekhni hain. Abhi provider data available nahi.',
+    LOOKUP_STATION: 'Samajh gaya — station code chahiye. Abhi station lookup API se response nahi mila.',
+    VIEW_WALLET: 'Samajh gaya — wallet balance dekhna chahte hain. Abhi wallet service active response nahi de raha.',
+    VIEW_BOOKINGS: 'Samajh gaya — booking history dikhani hai.',
+    CHECK_CHART_STATUS: 'Samajh gaya — chart status dekhna chahte hain.',
+    CHECK_REFUND: 'Refund rules ke liye thoda specific poochhiye, ya main apne approved knowledge se answer deta hoon.',
+    PLATFORM_INQUIRY: 'Samajh gaya — platform number jaanna chahte hain.',
+    COACH_POSITION: 'Samajh gaya — coach position dekhni hai.',
+    COMPARE_TRAINS: 'Samajh gaya — compare karna chahte hain.',
   };
 
-  // 12) GENERATE natural reply.
-  // When no tool results came back (demo/keyless/unavailable), give an intent-aware ack
-  // so the customer NEVER hears "samajh nahi paaya" — they always feel understood.
-  const anyOkToolResult = toolResults.some((t) => t.ok === true && t.data !== null && t.data !== undefined);
-  if ((toolResults.length === 0 || !anyOkToolResult) && intentAck[u.primaryIntent] && !u.clarificationQuestion) {
-    let ack = intentAck[u.primaryIntent]!;
-    if (u.primaryIntent === 'BOOK_TRAIN' || u.primaryIntent === 'SEARCH_TRAIN') {
-      if (!context.origin?.code) ack += ' Pehle batayein kaha se chalna hai?';
-      else if (!context.destination?.code) ack += ' Kaha jaana hai?';
-      else if (!context.journeyDate) ack += ' Kis date ko jaana hai? (aaj / kal / parso)';
-      else ack += ' Abhi demo mode mein train search API connect nahi — RAILCORE_API_KEY set karte hi live results dikh jaayenge.';
-    }
-    return finalize(ack, u, executedTools, null, null, context, correctionsApplied, resumedPausedBooking);
+  if (!anyOkToolResult && intentAck[u.primaryIntent] && !u.clarificationQuestion && toolCalls.length > 0) {
+    return finalize(intentAck[u.primaryIntent]!, u, executedTools, null, null, context, correctionsApplied, resumedPausedBooking);
   }
 
-  let pendingQ: string | null = null;
-  // @ts-ignore pausedBooking may not be on the public type shape but is used internally
-  if (isInfoQuery && !(context as any).pausedBooking && context.pendingQuestion) {
-    pendingQ = context.pendingQuestion;
-  }
   if (u.primaryIntent === 'BOOK_TRAIN' || u.primaryIntent === 'SEARCH_TRAIN') {
-    if (!context.journeyDate) pendingQ = 'Kis date ko jaana hai? (aaj / kal / parso / dd-mm-yyyy)';
-    else if (toolResults.length === 0) pendingQ = 'Details fetch ho rahi hain...';
+    if (!context.origin) return finalize('Pehle batayein kaha se chalna hai?', u, executedTools, null, null, context, correctionsApplied, resumedPausedBooking);
+    if (!context.destination) return finalize('Kaha jaana hai?', u, executedTools, null, null, context, correctionsApplied, resumedPausedBooking);
+    if (!context.journeyDate) return finalize('Kis date ko jaana hai? (aaj / kal / parso)', u, executedTools, null, null, context, correctionsApplied, resumedPausedBooking);
   }
 
+  // Generate reply.
   const reply = generateReply({
     understanding: u,
     context,
     toolResults,
-    pendingQuestion: pendingQ,
+    pendingQuestion: context.pendingQuestion,
   });
-
-  // Update lastIntent.
   context = { ...context, lastIntent: u.primaryIntent as any, updatedAt: contextUpdatedAt };
-
   return finalize(reply.text, u, executedTools, null, null, context, correctionsApplied, resumedPausedBooking);
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+function emptyTrain() {
+  return { name: null as string | null, originStation: null, destinationStation: null, departureTime: null, arrivalTime: null, runsOn: null, travelClasses: null, pantryCar: null };
+}
+
 function pick<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]!; }
 
 function finalize(
-  reply: string,
-  u: AutonomousUnderstanding,
-  executedTools: string[],
-  cards: unknown[] | null,
-  panel: unknown | null,
-  context: ConversationContext,
-  correctionsApplied: string[],
-  resumedPausedBooking: boolean,
+  reply: string, u: AutonomousUnderstanding, executedTools: string[],
+  cards: unknown[] | null, panel: unknown | null, context: ConversationContext,
+  correctionsApplied: string[], resumedPausedBooking: boolean,
 ): AutonomousHandlerOutput {
   return {
-    reply,
-    intent: u.primaryIntent,
+    reply, intent: u.primaryIntent,
     confidence: u.candidates[0]?.confidence ?? 0.5,
-    executedTools,
-    cards,
-    panel,
-    context,
+    executedTools, cards, panel, context,
     diagnostics: {
-      tone: u.tone,
-      sentiment: u.sentiment,
+      tone: u.tone, sentiment: u.sentiment,
       candidates: u.candidates.map((c) => ({ intent: c.intent, confidence: c.confidence })),
-      usedAutonomousEngine: true,
-      correctionsApplied,
-      resumedPausedBooking,
-      multiIntents: u.subIntents,
+      usedAutonomousEngine: true, correctionsApplied, resumedPausedBooking, multiIntents: u.subIntents,
     },
-    safety: {
-      aiCanBook: false,
-      aiCanMoveMoney: false,
-      providersChosenBy: 'server-router',
-    },
+    safety: { aiCanBook: false, aiCanMoveMoney: false, providersChosenBy: 'server-router' },
   };
 }
