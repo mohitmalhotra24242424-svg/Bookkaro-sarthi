@@ -115,6 +115,7 @@ const TIMETABLE: Timetable = {
   stops: [
     { stationCode: 'ASR', stationName: 'Amritsar Jn', arrivalTime: null, departureTime: '05:00', dayCount: 1, distanceKm: 0, haltMinutes: null },
     { stationCode: 'LDH', stationName: 'Ludhiana Jn', arrivalTime: '06:49', departureTime: '06:51', dayCount: 1, distanceKm: 135, haltMinutes: 2 },
+    { stationCode: 'NDLS', stationName: 'New Delhi', arrivalTime: '11:15', departureTime: null, dayCount: 1, distanceKm: 447, haltMinutes: null },
   ],
 };
 

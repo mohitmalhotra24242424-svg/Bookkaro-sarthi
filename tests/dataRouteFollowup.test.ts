@@ -9,7 +9,7 @@
  * resolving both stations, and asking only for whatever is still missing.
  */
 import { describe, expect, it } from 'vitest';
-import { createHarness, freshContext, run, ASR, LDH, NDLS, DLI, NZM } from './orchestration/harness.js';
+import { createHarness, freshContext, run, ASR, BEAS, LDH, NDLS, DLI, NZM } from './orchestration/harness.js';
 import type { AIProvider, AIUnderstandingInput, AIUnderstandingResult } from '../ai/AIProvider.js';
 import type { AIReplyInput, AIReplyResult } from '../ai/AIProvider.js';
 import { providerSuccess } from '../shared/index.js';
@@ -221,7 +221,11 @@ describe('one-line 12054 Amritsar JN → Ludhiana JN availability', () => {
         timetable: providerSuccess('RAILCORE', {
           trainNumber: '12054',
           trainName: 'HW JANSHATABDI',
-          stops: [],
+          // Halt-check needs commercial stops; classes stay unpublished so chips stay empty.
+          stops: [
+            { stationCode: 'ASR', stationName: 'AMRITSAR JN', arrivalTime: null, departureTime: '06:50', dayCount: 1, distanceKm: 0, haltMinutes: 0 },
+            { stationCode: 'LDH', stationName: 'LUDHIANA JN', arrivalTime: '08:00', departureTime: '08:02', dayCount: 1, distanceKm: 135, haltMinutes: 2 },
+          ],
           travelClasses: null,
         }),
       },
@@ -330,5 +334,168 @@ describe('one-line 12054 Amritsar JN → Ludhiana JN availability', () => {
     expect(t1.context.origin?.code).toBe('ASR');
     expect(t1.context.destination?.code).toBe('LDH');
     expect(t1.reply).not.toMatch(/EK station choose|ASRA|VERKA/i);
+  });
+});
+
+
+/** Real RailCore commercial schedule for 12054 (include_intermediate=false) — no LDH. */
+const JAN_12054 = {
+  number: '12054',
+  name: 'ASR JAN SHATABDI',
+  originStation: { code: 'ASR', name: 'AMRITSAR JN', zone: null, state: 'Punjab', latitude: null, longitude: null },
+  destinationStation: { code: 'HW', name: 'Haridwar Jn', zone: null, state: 'Uttarakhand', latitude: null, longitude: null },
+  departureTime: '06:50',
+  arrivalTime: '13:05',
+  runsOn: ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'] as const,
+  travelClasses: ['CC', '2S'] as const,
+  pantryCar: true,
+};
+
+const JAN_12054_COMMERCIAL = {
+  trainNumber: '12054',
+  trainName: 'HW JANSHATABDI',
+  travelClasses: ['2S', 'CC'] as const,
+  stops: [
+    { stationCode: 'ASR', stationName: 'AMRITSAR JN', arrivalTime: null, departureTime: '06:50', dayCount: 1, distanceKm: 0, haltMinutes: 0 },
+    { stationCode: 'BEAS', stationName: 'BEAS', arrivalTime: '07:18', departureTime: '07:20', dayCount: 1, distanceKm: 42, haltMinutes: 2 },
+    { stationCode: 'JUC', stationName: 'JALANDHAR CITY', arrivalTime: '07:48', departureTime: '07:50', dayCount: 1, distanceKm: 79, haltMinutes: 2 },
+    { stationCode: 'PGW', stationName: 'PHAGWARA JN', arrivalTime: '08:04', departureTime: '08:06', dayCount: 1, distanceKm: 100, haltMinutes: 2 },
+    { stationCode: 'DDL', stationName: 'DHANDARI KALAN', arrivalTime: '08:26', departureTime: '08:28', dayCount: 1, distanceKm: 135, haltMinutes: 2 },
+    { stationCode: 'SIR', stationName: 'SIRHIND JN', arrivalTime: '09:00', departureTime: '09:02', dayCount: 1, distanceKm: 187, haltMinutes: 2 },
+    { stationCode: 'UMB', stationName: 'AMBALA CANT JN', arrivalTime: '09:50', departureTime: '10:00', dayCount: 1, distanceKm: 241, haltMinutes: 10 },
+    { stationCode: 'YJUD', stationName: 'YAMUNANAGAR JAGADHRI', arrivalTime: '10:38', departureTime: '10:40', dayCount: 1, distanceKm: 292, haltMinutes: 2 },
+    { stationCode: 'SSW', stationName: 'SARSAWA', arrivalTime: '10:58', departureTime: '11:00', dayCount: 1, distanceKm: 315, haltMinutes: 2 },
+    { stationCode: 'SRE', stationName: 'SAHARANPUR', arrivalTime: '11:20', departureTime: '11:25', dayCount: 1, distanceKm: 322, haltMinutes: 5 },
+    { stationCode: 'RK', stationName: 'ROORKEE', arrivalTime: '11:56', departureTime: '11:58', dayCount: 1, distanceKm: 357, haltMinutes: 2 },
+    { stationCode: 'HW', stationName: 'HARIDWAR JN', arrivalTime: '13:05', departureTime: null, dayCount: 1, distanceKm: 399, haltMinutes: 0 },
+  ],
+};
+
+describe('12054 does not commercially halt at LDH — schedule before seats', () => {
+  it('availability ASR→LDH fetches getTimetable first and refuses — never class chips or getAvailability', async () => {
+    const harness = createHarness(
+      {
+        trainInfo: providerSuccess('RAILCORE', JAN_12054),
+        timetable: providerSuccess('RAILCORE', JAN_12054_COMMERCIAL),
+        availability: providerSuccess('RAILCORE', {
+          trainNumber: '12054',
+          journeyDate: '2026-08-27',
+          travelClass: 'CC',
+          quota: 'GN',
+          status: 'UNAVAILABLE',
+          availableCount: 0,
+          racCount: null,
+          waitlistNumber: null,
+          asOf: null,
+        }),
+      },
+      { stations: [ASR, BEAS, LDH, NDLS, DLI, NZM] },
+    );
+    const availBefore = harness.countCapability('availability');
+    const t1 = await run(
+      harness,
+      freshContext(),
+      'Mujhe 12054 ki amritsar jn se ludhiana jn ki seat availability btana',
+    );
+    expect(t1.intent).toBe('GET_AVAILABILITY');
+    expect(t1.context.origin?.code).toBe('ASR');
+    expect(t1.context.destination?.code).toBe('LDH');
+    expect(t1.executedTools).toContain('getTimetable');
+    expect(t1.executedTools).not.toContain('getAvailability');
+    expect(harness.countCapability('availability')).toBe(availBefore);
+    expect(t1.chips).toBeNull();
+    expect(t1.reply).toMatch(/NAHI rukti/i);
+    expect(t1.reply).toMatch(/LDH/);
+    expect(t1.reply).toMatch(/Commercial stops:/);
+    expect(t1.reply).not.toMatch(/Kaunsi class chahiye/i);
+    expect(t1.reply).not.toMatch(/AVAILABLE|WAITLIST|seat available nahi/i);
+    expect(t1.reply).not.toMatch(/kis date/i);
+  });
+
+  it('fare ASR→LDH also refuses from schedule — never getFare', async () => {
+    const harness = createHarness(
+      {
+        trainInfo: providerSuccess('RAILCORE', JAN_12054),
+        timetable: providerSuccess('RAILCORE', JAN_12054_COMMERCIAL),
+      },
+      { stations: [ASR, BEAS, LDH, NDLS, DLI, NZM] },
+    );
+    const fareBefore = harness.countCapability('fare');
+    const t1 = await run(harness, freshContext(), '12054 ka fare amritsar jn se ludhiana jn');
+    expect(t1.intent).toBe('GET_FARE');
+    expect(t1.executedTools).toContain('getTimetable');
+    expect(t1.executedTools).not.toContain('getFare');
+    expect(harness.countCapability('fare')).toBe(fareBefore);
+    expect(t1.reply).toMatch(/NAHI rukti/i);
+    expect(t1.reply).not.toMatch(/Railway fare/i);
+  });
+
+  it('when the train does halt (ASR→BEAS), availability proceeds to date/class as before', async () => {
+    const harness = createHarness(
+      {
+        trainInfo: providerSuccess('RAILCORE', { ...JAN_12054, travelClasses: null }),
+        timetable: providerSuccess('RAILCORE', JAN_12054_COMMERCIAL),
+      },
+      { stations: [ASR, BEAS, LDH, NDLS, DLI, NZM] },
+    );
+    const t1 = await run(harness, freshContext(), '12054 ki asr se beas seat availability');
+    expect(t1.context.origin?.code).toBe('ASR');
+    expect(t1.context.destination?.code).toBe('BEAS');
+    expect(t1.executedTools).toContain('getTimetable');
+    expect(t1.executedTools).not.toContain('getAvailability');
+    expect(t1.reply).toMatch(/date/i);
+    expect(t1.reply).not.toMatch(/NAHI rukti/i);
+    const t2 = await run(harness, t1.context, 'kal');
+    expect(t2.chips).toEqual(['2S', 'CC']);
+    expect(t2.reply).toMatch(/Kaunsi class chahiye\? \(2S, CC\)/);
+  });
+
+  it('AI getAvailability tool request also refuses before seats when LDH is not a stop', async () => {
+    const steal: AIProvider = {
+      providerId: 'nvidia-halt',
+      async understand() {
+        return {
+          intent: 'GET_AVAILABILITY',
+          confidence: 0.9,
+          slots: {
+            originQuery: 'ASR',
+            destinationQuery: 'LDH',
+            journeyDate: null,
+            dateText: 'kal',
+            passengerCount: null,
+            trainNumber: '12054',
+            secondTrainNumber: null,
+            travelClass: 'CC',
+            pnr: null,
+            resultReference: null,
+            isCorrection: false,
+            mentionedStations: ['ASR', 'LDH'],
+            glossaryTerm: null,
+          },
+          missingFields: [],
+          toolRequest: { tool: 'getAvailability', input: { trainNumber: '12054', travelClass: 'CC' }, rationale: 'seats' },
+        };
+      },
+      async generateResponse() {
+        return { askForField: null, message: 'n/a' };
+      },
+    };
+    const harness = createHarness(
+      {
+        trainInfo: providerSuccess('RAILCORE', JAN_12054),
+        timetable: providerSuccess('RAILCORE', JAN_12054_COMMERCIAL),
+      },
+      { stations: [ASR, BEAS, LDH, NDLS, DLI, NZM] },
+    );
+    const t1 = await run(
+      harness,
+      freshContext(),
+      'Mujhe 12054 ki amritsar jn se ludhiana jn ki seat availability btana',
+      { ai: steal },
+    );
+    expect(t1.executedTools).toContain('getTimetable');
+    expect(t1.executedTools).not.toContain('getAvailability');
+    expect(t1.reply).toMatch(/NAHI rukti/i);
+    expect(t1.chips).toBeNull();
   });
 });

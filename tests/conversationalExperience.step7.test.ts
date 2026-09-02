@@ -35,9 +35,10 @@ describe('1-8: natural follow-ups (no repeated context)', () => {
   it('2: follow-up AVAILABILITY — bare "availability?" calls GET_AVAILABILITY', async () => {
     const { harness, context } = await searched('first'); // CC context via selection? class not chosen yet → asks class
     const turn = await run(harness, context, 'availability?');
-    expect(turn.executedTools.length === 0 || turn.executedTools.includes('getAvailability')).toBe(true);
-    if (turn.executedTools.length === 0) {
-      expect(turn.reply).toMatch(/kaunsi class/i); // honest missing-slot ask
+    if (turn.executedTools.includes('getAvailability')) {
+      expect(turn.intent).toBe('GET_AVAILABILITY');
+    } else {
+      expect(turn.reply).toMatch(/kaunsi class/i); // honest missing-slot ask (schedule may already have been fetched)
     }
   });
 

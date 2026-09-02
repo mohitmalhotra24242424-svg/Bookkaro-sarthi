@@ -45,7 +45,14 @@ function lowBalanceRouter(): RailwayProviderRouter {
       stationLookup: () => Promise.resolve(providerSuccess('RAILCORE', [ASR, LDH] as Station[])),
       trainSearch: () => Promise.resolve(providerSuccess('RAILCORE', lowBalanceSearchResults())),
       trainInfo: () => Promise.resolve(providerSuccess('RAILCORE', {})),
-      timetable: () => Promise.resolve(providerSuccess('RAILCORE', {})),
+      timetable: () => Promise.resolve(providerSuccess('RAILCORE', {
+        trainNumber: '12014',
+        trainName: 'Amritsar Shatabdi',
+        stops: [
+          { stationCode: 'ASR', stationName: 'Amritsar Jn', arrivalTime: null, departureTime: '05:00', dayCount: 1, distanceKm: 0, haltMinutes: null },
+          { stationCode: 'LDH', stationName: 'Ludhiana Jn', arrivalTime: '06:49', departureTime: '06:51', dayCount: 1, distanceKm: 135, haltMinutes: 2 },
+        ],
+      })),
       liveStatus: () => Promise.resolve(providerSuccess('RAILCORE', {})),
       availability: () => Promise.resolve(providerSuccess('RAILCORE', {})),
       fare: () => Promise.resolve(providerSuccess('RAILCORE', {

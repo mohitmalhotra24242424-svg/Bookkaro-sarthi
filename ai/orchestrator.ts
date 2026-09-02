@@ -119,6 +119,7 @@ import {
   stationsReply,
   timetableReply,
   trainInfoReply,
+  trainDoesNotServeSegmentReply,
   walletReply,
 } from './replyTemplates.js';
 import {
@@ -1194,6 +1195,21 @@ async function maybeHandleAiToolRequest(state: TurnState, u: AIUnderstandingResu
     }
   }
 
+  if ((toolRequest.tool === 'getAvailability' || toolRequest.tool === 'getFare') && state.context.origin?.code && state.context.destination?.code) {
+    const trainNumber = resolveTurnTrainNumber(u, state.context);
+    if (trainNumber) {
+      const blocked = await refuseIfTrainSkipsSegment(
+        state,
+        trainNumber,
+        state.context.origin.code,
+        state.context.destination.code,
+        intent as Intent,
+        usedFallback,
+      );
+      if (blocked) return blocked;
+    }
+  }
+
   // Never execute availability without a class — offer the train's API classes as chips.
   if (toolRequest.tool === 'getAvailability') {
     const trainNumber = resolveTurnTrainNumber(u, state.context);
@@ -1706,6 +1722,90 @@ function stampTrainClasses(state: TurnState, trainNumber: string, classes: Trave
   return classes;
 }
 
+function timetableFromThisTurn(state: TurnState, trainNumber: string): Timetable | null {
+  for (let i = state.toolResults.length - 1; i >= 0; i -= 1) {
+    const result = state.toolResults[i]!;
+    if (result.tool !== 'getTimetable') continue;
+    const timetable = dataOf<Timetable>(result);
+    if (timetable && (!timetable.trainNumber || timetable.trainNumber === trainNumber)) return timetable;
+  }
+  return null;
+}
+
+async function loadTimetable(state: TurnState, trainNumber: string): Promise<Timetable | null> {
+  const cached = timetableFromThisTurn(state, trainNumber);
+  if (cached) return cached;
+  const result = await executeTool(state, 'getTimetable', { trainNumber });
+  return dataOf<Timetable>(result);
+}
+
+function haltIndex(stops: readonly TrainStop[], code: string): number {
+  const want = code.toUpperCase();
+  return stops.findIndex((stop) => (stop.stationCode ?? '').toUpperCase() === want);
+}
+
+function stationHaltLabel(station: Station | null | undefined, code: string): string {
+  return station?.name && station.code.toUpperCase() === code.toUpperCase() ? station.name : code;
+}
+
+/**
+ * Commercial-stop check from getTimetable (include_intermediate=false).
+ * Pass-through points like 12054@LDH are NOT stops — never treat as a bookable segment.
+ */
+async function refuseIfTrainSkipsSegment(
+  state: TurnState,
+  trainNumber: string,
+  fromCode: string,
+  toCode: string,
+  intent: Intent,
+  usedFallback: boolean,
+): Promise<OrchestratorTurn | null> {
+  const timetable = await loadTimetable(state, trainNumber);
+  if (!timetable) {
+    return finish(
+      state,
+      intent,
+      `${trainNumber} ka schedule/stoppage abhi provider se confirm nahi ho paaya — isliye seat/fare andaza nahi lagaunga.`,
+      { usedFallbackNlu: usedFallback, factsFromTools: true },
+    );
+  }
+  const stops = Array.isArray(timetable.stops) ? timetable.stops : [];
+  if (stops.length === 0) {
+    return finish(
+      state,
+      intent,
+      `${trainNumber} ka schedule/stoppage abhi provider se confirm nahi ho paaya — isliye seat/fare andaza nahi lagaunga.`,
+      { usedFallbackNlu: usedFallback },
+    );
+  }
+  const fromIdx = haltIndex(stops, fromCode);
+  const toIdx = haltIndex(stops, toCode);
+  let missing: 'from' | 'to' | 'both' | 'order' | null = null;
+  if (fromIdx < 0 && toIdx < 0) missing = 'both';
+  else if (fromIdx < 0) missing = 'from';
+  else if (toIdx < 0) missing = 'to';
+  else if (fromIdx >= toIdx) missing = 'order';
+  if (!missing) {
+    const classes = asTravelClassCodes(timetable.travelClasses);
+    if (classes.length > 0 && offeredClassCodes(state.context).length === 0) {
+      stampTrainClasses(state, trainNumber, classes, state.context.selectedTrain);
+    }
+    return null;
+  }
+  rememberTrain(state, trainNumber);
+  const reply = trainDoesNotServeSegmentReply({
+    trainNumber,
+    trainName: timetable.trainName ?? state.context.selectedTrain?.name ?? state.context.lastReferencedTrain?.name ?? null,
+    fromCode: fromCode.toUpperCase(),
+    toCode: toCode.toUpperCase(),
+    fromLabel: stationHaltLabel(state.context.origin, fromCode),
+    toLabel: stationHaltLabel(state.context.destination, toCode),
+    missing,
+    stopCodes: stops.map((stop) => stop.stationCode),
+  });
+  return finish(state, intent, reply, { usedFallbackNlu: usedFallback });
+}
+
 /**
  * Real provider classes only. RailCore /trains/{n} often omits `classes`;
  * the schedule endpoint publishes them (e.g. 12054 → 2S, CC). Never invent SL/3A.
@@ -1719,8 +1819,7 @@ async function ensureTrainClasses(state: TurnState, trainNumber: string): Promis
   const fromInfo = asTravelClassCodes(train?.travelClasses);
   if (fromInfo.length > 0) return stampTrainClasses(state, trainNumber, fromInfo, train);
 
-  const timetableResult = await executeTool(state, 'getTimetable', { trainNumber });
-  const timetable = dataOf<Timetable>(timetableResult);
+  const timetable = await loadTimetable(state, trainNumber);
   const fromSchedule = asTravelClassCodes(timetable?.travelClasses);
   if (fromSchedule.length > 0) {
     return stampTrainClasses(state, trainNumber, fromSchedule, train ? { ...train, name: train.name ?? timetable?.trainName ?? null } : {
@@ -2266,6 +2365,11 @@ async function continueBookingFlow(state: TurnState, usedFallback: boolean): Pro
     state.context = setContextSlots({ ...context, selectedClass: null }, { selectedClass: null }, 'FILL_MISSING', nowIso(state));
     const question = `${trainNumber} mein ${travelClass} class available nahi hai — is train mein ${offered.join('/')} classes hain. ${askClassNow(state)}`;
     return finish(state, 'BOOK_TRAIN', question, { usedFallbackNlu: usedFallback });
+  }
+
+  {
+    const blocked = await refuseIfTrainSkipsSegment(state, trainNumber, from, to, 'BOOK_TRAIN', usedFallback);
+    if (blocked) return blocked;
   }
 
   const replyParts: string[] = [];
@@ -3056,6 +3160,10 @@ async function handleAvailability(state: TurnState, u: AIUnderstandingResult, us
       usedFallbackNlu: usedFallback,
     });
   }
+  {
+    const blocked = await refuseIfTrainSkipsSegment(state, trainNumber, from, to, 'GET_AVAILABILITY', usedFallback);
+    if (blocked) return blocked;
+  }
   const journeyDate = (u.slots.dateText ? resolveDateText(u.slots.dateText, state.now) : null) ?? state.context.journeyDate;
   if (!journeyDate) {
     snapshotPendingDataRoute(state, u, 'GET_AVAILABILITY', trainNumber);
@@ -3111,6 +3219,10 @@ async function handleFare(state: TurnState, u: AIUnderstandingResult, usedFallba
     const resolved = await snapshotAndMaybeResolveDataRoute(state, u, usedFallback, 'GET_FARE', trainNumber);
     if (resolved) return resolved;
     return finish(state, 'GET_FARE', 'Kis route ka fare chahiye? (jaise: Amritsar se Ludhiana)', { usedFallbackNlu: usedFallback });
+  }
+  {
+    const blocked = await refuseIfTrainSkipsSegment(state, trainNumber, from, to, 'GET_FARE', usedFallback);
+    if (blocked) return blocked;
   }
   const journeyDate = (u.slots.dateText ? resolveDateText(u.slots.dateText, state.now) : null) ?? state.context.journeyDate;
   rememberTrain(state, trainNumber);

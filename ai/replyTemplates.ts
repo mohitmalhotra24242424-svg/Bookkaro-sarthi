@@ -39,6 +39,37 @@ export function trainLabel(train: { number: string; name: string | null }): stri
 
 // ── questions (one missing field at a time) ─────────────────────────────────
 
+/** Honest: this train does not halt at the asked station(s) — never “seats unavailable”. */
+export function trainDoesNotServeSegmentReply(input: {
+  trainNumber: string;
+  trainName: string | null;
+  fromCode: string;
+  toCode: string;
+  fromLabel: string;
+  toLabel: string;
+  missing: 'from' | 'to' | 'both' | 'order';
+  stopCodes: readonly string[];
+}): string {
+  const label = input.trainName ? `${input.trainNumber} — ${input.trainName}` : input.trainNumber;
+  const codes = input.stopCodes.filter(Boolean);
+  const stopLine =
+    codes.length === 0
+      ? ''
+      : codes.length <= 12
+        ? ` Commercial stops: ${codes.join(', ')}.`
+        : ` Commercial stops: ${codes.slice(0, 8).join(', ')} … ${codes[codes.length - 1]} (${codes.length} stops).`;
+  if (input.missing === 'both') {
+    return `${label} na ${input.fromLabel} (${input.fromCode}) par rukti hai, na ${input.toLabel} (${input.toCode}) par — isliye is segment ki seat/fare nahi nikal sakta (andaza nahi).${stopLine}`;
+  }
+  if (input.missing === 'from') {
+    return `${label} ${input.fromLabel} (${input.fromCode}) par NAHI rukti — isliye ${input.fromCode}→${input.toCode} ki seat/fare nahi nikal sakta (andaza nahi).${stopLine}`;
+  }
+  if (input.missing === 'to') {
+    return `${label} ${input.toLabel} (${input.toCode}) par NAHI rukti — isliye ${input.fromCode}→${input.toCode} ki seat/fare nahi nikal sakta (andaza nahi).${stopLine}`;
+  }
+  return `${label} ${input.fromCode} se ${input.toCode} is direction mein nahi chalti (schedule order alag hai) — isliye seat/fare nahi nikal sakta.${stopLine}`;
+}
+
 /** Class question lists ONLY the train's real API classes — never a generic IRCTC menu. */
 export function askForClass(offered: readonly string[] | null | undefined): string {
   const classes = [...(offered ?? [])].map((code) => code.trim().toUpperCase()).filter(Boolean);

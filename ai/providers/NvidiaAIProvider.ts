@@ -215,6 +215,7 @@ export function nluSystemPrompt(intents: readonly string[], availableTools: read
     'LANG passengerCount: "2 tickets"/"2 टिकट"/"हम 3 लोग"/"तीन टिकट" → 3.',
     'LANG intents: live/लाइव स्टेटस/स्थिति→LIVE_TRAIN_STATUS; PNR/पीएनआर→CHECK_PNR; fare/किराया→GET_FARE; available/उपलब्धता/milegi→GET_AVAILABILITY; timetable/टाइम टेबल/समय सारिणी→GET_TIMETABLE; cancelled/रद्द→GET_CANCELLED_TRAINS; wallet/वॉलेट→VIEW_WALLET; bookings/मेरी बुकिंग→VIEW_BOOKINGS; station code/स्टेशन कोड→LOOKUP_STATION.',
     'STOPPAGE: "Does train 12053 stop at Ludhiana?", "12053 Ludhiana rukti hai?", "kya 12053 LDH pe rukta hai?" → {intent:"GET_TIMETABLE", tool:"getTimetable", toolInput:{trainNumber:"12053"}} and put the station in entities.mentionedStations (or origin/destination if "se X se Y"). The backend checks the REAL stops and answers yes/no — you never decide whether it stops.',
+    'AVAILABILITY/FARE on a named train+route: the SERVER will fetch getTimetable and refuse if the train does not commercially STOP at both stations (e.g. 12054 does not halt at LDH even if it passes). You may also set tool getTimetable. NEVER invent seats for a station the train does not halt at.',
     'LANG digits: accept Devanagari digits too (१२३ → 123) for train numbers and PNR.',
     'Intent hints: available/milegi/milega/WL questions → GET_AVAILABILITY; fare/price/paisa questions → GET_FARE;',
     'Wanting a class is BOOKING, not availability: "3A chahiye", "sleeper seat", "12014 mein 3A", "SL wali" → intent BOOK_TRAIN, fill trainNumber and/or travelClass.',
