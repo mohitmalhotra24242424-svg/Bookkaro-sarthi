@@ -221,7 +221,7 @@ export function createHandleDeps(options: BookKaroServerOptions = {}): HandleDep
       // "bot answering" behaviour we removed. On Render (long-running service,
       // no per-request duration cap) we allow up to 24s so the real AI wins;
       // anything slower still degrades safely to the deterministic NLU.
-      aiTimeoutMs: 24_000,
+      aiTimeoutMs: 45_000,
     };
   const conversations = createDefaultConversationStore();
 
@@ -236,7 +236,7 @@ export function createHandleDeps(options: BookKaroServerOptions = {}): HandleDep
     apiKey: getSecret('NVIDIA_API_KEY') ?? '',
     backupApiKeys: getAIApiKeys().slice(1),
     baseUrl: process.env.NVIDIA_BASE_URL?.trim() || 'https://integrate.api.nvidia.com/v1',
-    timeoutMs: 15_000,
+    timeoutMs: 20_000,
   });
 
   // AI-FIRST tool planning: the AI (via the semantic planner) decides which

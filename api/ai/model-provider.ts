@@ -50,7 +50,7 @@ export function getModelProviderConfig(): ModelProviderConfig {
  */
 export function createModelProvider(config: ModelProviderConfig = getModelProviderConfig()): ModelProviderSelection {
   const { provider, model, apiKey, backupKeys, baseUrl } = config;
-  const options = { apiKey: apiKey ?? '', model: model ?? undefined, baseUrl: baseUrl ?? undefined, fallbackApiKeys: backupKeys ?? [] };
+  const options = { apiKey: apiKey ?? '', model: model ?? undefined, baseUrl: baseUrl ?? undefined, fallbackApiKeys: backupKeys ?? [], timeoutMs: 20_000 };
 
   if (apiKey && (provider === 'nvidia' || ((provider === 'openai' || provider === 'openai-compatible' || provider === 'rapidapi') && baseUrl))) {
     // Step 9 AI GATEWAY: GPT-OSS-20B PRIMARY → Nemotron SECONDARY
@@ -61,7 +61,7 @@ export function createModelProvider(config: ModelProviderConfig = getModelProvid
     const secondaryModel = model ?? 'nvidia/nemotron-3.5-lightning-30b-a3b';
     const primary = new NvidiaAIProvider({ ...options, model: primaryModel });
     const secondary = new NvidiaAIProvider({ ...options, model: secondaryModel });
-    const gateway = new AIGateway({ primary, secondary, timeoutMs: 15_000 });
+    const gateway = new AIGateway({ primary, secondary, timeoutMs: 20_000 });
     return {
       provider: gateway,
       name: `nvidia-gateway:${primaryModel}→${secondaryModel}`,

@@ -48,7 +48,7 @@ export class NvidiaAIProvider implements AIProvider {
     this.model = options.model ?? 'meta/llama-3.1-70b-instruct';
     this.disableThinking = /nemotron-3/i.test(this.model);
     this.baseUrl = (options.baseUrl ?? 'https://integrate.api.nvidia.com/v1').replace(/\/+$/, '');
-    this.timeoutMs = options.timeoutMs ?? 8_000;
+    this.timeoutMs = options.timeoutMs ?? 20_000;
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
   }
 
