@@ -310,11 +310,22 @@ export async function handleAutonomously(
     return args;
   };
 
+  // Map registry names → catalog IDs for the tool executor.
+  const REGISTRY_TO_CATALOG: Record<string, string> = {
+    searchTrains: 'SEARCH_TRAINS', lookupStation: 'LOOKUP_STATION',
+    getTrainInfo: 'GET_TRAIN_INFO', getTimetable: 'GET_TIMETABLE',
+    getLiveStatus: 'GET_LIVE_STATUS', getAvailability: 'CHECK_AVAILABILITY',
+    getFare: 'GET_FARE', checkPNR: 'GET_PNR', getCancelledTrains: 'GET_CANCELLED_TRAINS',
+    getBookings: 'GET_BOOKINGS', getWallet: 'GET_WALLET', compareTrains: 'COMPARE_TRAINS',
+    getRailwayKnowledge: 'RAILWAY_KNOWLEDGE',
+  };
+
   for (const toolName of u.suggestedTools) {
-    // Map semantic/catalog ids to registry tool names if needed.
-    const catalogId = semanticToolToCatalogId(toolName) ?? toolName;
-    if (!isAiSelectableTool(catalogId)) continue;
-    const args = toolArgs(catalogId);
+    // Accept both registry names (searchTrains) and catalog IDs (SEARCH_TRAINS).
+    let catalogId = semanticToolToCatalogId(toolName);
+    if (!catalogId) catalogId = REGISTRY_TO_CATALOG[toolName] ?? (toolName.toUpperCase() === toolName ? toolName : null);
+    if (!catalogId || !isAiSelectableTool(catalogId)) continue;
+    const args = toolArgs(toolName) ?? {};
     toolCalls.push({ tool: catalogId, args });
   }
 
