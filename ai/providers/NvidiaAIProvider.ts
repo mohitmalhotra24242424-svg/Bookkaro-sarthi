@@ -104,6 +104,7 @@ export class NvidiaAIProvider implements AIProvider {
         content:
           'You are BookKaro, a friendly Indian railway assistant. Reply in Hinglish (1–4 short sentences). ' +
           'If the tool-results JSON has data: answer the USER question using ONLY those facts. Never invent train numbers, times, dates, fares, availability, stations or stop times. If the data does not contain the answer, say so plainly. ' +
+          'STOPPAGE vs SEATS: you do not memorize which trains halt where. If a timetable/stops list is in the JSON and the asked from/to station is NOT in it, say the train does NOT halt there. Never say AVAILABLE, waitlist, or "seats nahi" for a non-halt — that is stoppage, not inventory. ' +
           'If tool results are empty: this is conversation (greeting, thanks, help, off-topic). Greet warmly, say you handle trains, live status, fare, PNR and booking, and invite them to ask. Never invent live railway facts. ' +
           'No URLs, no markdown tables.',
       },
@@ -214,8 +215,9 @@ export function nluSystemPrompt(intents: readonly string[], availableTools: read
     'LANG classes: sleeper/स्लीपर=SL; chair car/चेयर कार=CC; 3 AC / third ac / तीसरा एसी=3A; 2 AC / second ac / दूसरा एसी=2A; 1 AC / first ac / पहला एसी=1A; 3E; 2S; EC.',
     'LANG passengerCount: "2 tickets"/"2 टिकट"/"हम 3 लोग"/"तीन टिकट" → 3.',
     'LANG intents: live/लाइव स्टेटस/स्थिति→LIVE_TRAIN_STATUS; PNR/पीएनआर→CHECK_PNR; fare/किराया→GET_FARE; available/उपलब्धता/milegi→GET_AVAILABILITY; timetable/टाइम टेबल/समय सारिणी→GET_TIMETABLE; cancelled/रद्द→GET_CANCELLED_TRAINS; wallet/वॉलेट→VIEW_WALLET; bookings/मेरी बुकिंग→VIEW_BOOKINGS; station code/स्टेशन कोड→LOOKUP_STATION.',
-    'STOPPAGE: "Does train 12053 stop at Ludhiana?", "12053 Ludhiana rukti hai?", "kya 12053 LDH pe rukta hai?" → {intent:"GET_TIMETABLE", tool:"getTimetable", toolInput:{trainNumber:"12053"}} and put the station in entities.mentionedStations (or origin/destination if "se X se Y"). The backend checks the REAL stops and answers yes/no — you never decide whether it stops.',
-    'AVAILABILITY/FARE on a named train+route: the SERVER will fetch getTimetable and refuse if the train does not commercially STOP at both stations (e.g. 12054 does not halt at LDH even if it passes). You may also set tool getTimetable. NEVER invent seats for a station the train does not halt at.',
+    'YOU ARE NOT A RAILWAY DATABASE: thousands of trains × stations. NEVER memorize or guess whether a train HALTS, has seats, or a fare. Live APIs are the only source. If you do not have a verified tool result, request a tool or ask a missing slot — never bluff.',
+    'STOPPAGE: "X Y pe rukti hai?", "does train X stop at Y?" → {intent:"GET_TIMETABLE", tool:"getTimetable", toolInput:{trainNumber:"X"}} and put Y in mentionedStations (or origin/destination if "A se B"). You never decide halt yourself.',
+    'AVAILABILITY/FARE/BOOKING on ANY named train + from/to: set tool getAvailability or getFare (or getTimetable). The SERVER always fetches the live commercial schedule first for THAT train and refuses if either station is not a commercial stop (passing a city ≠ halt). Same rule for every train — no special cases. NEVER invent "seats nahi"/WL/AVAILABLE for a non-halt; that is stoppage, not inventory.',
     'LANG digits: accept Devanagari digits too (१२३ → 123) for train numbers and PNR.',
     'Intent hints: available/milegi/milega/WL questions → GET_AVAILABILITY; fare/price/paisa questions → GET_FARE;',
     'Wanting a class is BOOKING, not availability: "3A chahiye", "sleeper seat", "12014 mein 3A", "SL wali" → intent BOOK_TRAIN, fill trainNumber and/or travelClass.',

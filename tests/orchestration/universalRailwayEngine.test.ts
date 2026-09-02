@@ -790,6 +790,9 @@ describe('AI role + day-part clock contract (AI interprets, deterministic enforc
     expect(prompt).toMatch(/deterministic SERVER engine/i);
     expect(prompt).toMatch(/you request it/i);
     expect(prompt).toMatch(/AVAILABLE TOOLS/i);
+    expect(prompt).toMatch(/YOU ARE NOT A RAILWAY DATABASE/i);
+    expect(prompt).toMatch(/no special cases/i);
+    expect(prompt).toMatch(/passing a city/i);
   });
 
   it('prompt states the authoritative day-part boundaries + the midnight rule (12 ke baad = morning, not night)', () => {
