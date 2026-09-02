@@ -111,6 +111,22 @@ describe('stationFromLookup: name → main station (verified provider shapes)', 
     expect(result.choiceNeeded?.map((s) => s.code).sort()).toEqual(['ASR', 'ASRA']);
   });
 
+  it('"amritsar jn" auto-picks ASR — never asks ASR vs ASRA vs Verka', () => {
+    const result = stationFromLookup('amritsar jn', [
+      S('ASR', 'AMRITSAR JN', { city: 'Amritsar', isMajor: true }),
+      S('ASRA', 'AMRITSAR CBA'),
+      S('VKA', 'VERKA JN', { city: 'Amritsar' }),
+    ]);
+    expect(result.station?.code).toBe('ASR');
+    expect(result.choiceNeeded).toBeNull();
+  });
+
+  it('"ludhiana jn" / "ldh jn" auto-picks LDH over Quick Trans', () => {
+    expect(stationFromLookup('ludhiana jn', LUDHIANA_RESULTS).station?.code).toBe('LDH');
+    expect(stationFromLookup('ldh jn', LUDHIANA_RESULTS).station?.code).toBe('LDH');
+    expect(stationFromLookup('ludhiana jn', LUDHIANA_RESULTS).choiceNeeded).toBeNull();
+  });
+
   it('drops cabin/yard/CB noise and still asks real Lucknow stations', () => {
     const result = stationFromLookup('lucknow', [
       S('LKO', 'LUCKNOW NR', { city: 'Lucknow', isMajor: true }),

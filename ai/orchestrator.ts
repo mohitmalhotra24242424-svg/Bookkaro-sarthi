@@ -53,6 +53,7 @@ import type {
   ToolResult,
   Train,
   TrainSearchResult,
+  TravelClassCode,
 } from '../shared/index.js';
 import { composeKnowledgeAnswer, findGlossaryAnswer } from '../shared/railwayKnowledge.js';
 import {
@@ -449,6 +450,10 @@ function preferUserStationQuery(modelQuery: string | null, detQuery: string | nu
     if (typed && userMentionedToken(userMessage, typed.code)) {
       return typed.code;
     }
+    // "amritsar jn" is more specific than a model-expanded "Amritsar".
+    if (/\b(jn|junction|cantt|cant)\b/i.test(detQuery) && (!modelQuery || !/\b(jn|junction|cantt|cant)\b/i.test(modelQuery))) {
+      return detQuery;
+    }
   }
   if (modelQuery) {
     const inventedCode = stationFromDirectInput(modelQuery)?.station?.code;
@@ -475,10 +480,10 @@ async function resolveStation(state: TurnState, candidate: string | null): Promi
   const result = await executeTool(state, 'lookupStation', { query: lookupQuery });
   const stations = dataOf<Station[]>(result);
   if (stations && stations.length > 0) {
-    // Match with the SAME normalized query (junction suffix stripped) that the
-    // provider used, so "ldh jn"→"ldh" resolves LDH by code instead of asking
-    // over the provider's fuzzy candidate list.
-    const lookup = stationFromLookup(lookupQuery, stations);
+    // Classify against the USER's original phrase ("amritsar jn") so a JN/CANTT
+    // suffix auto-picks that station. The provider query is still the stripped
+    // canonical form (so we never look up a bare "jn").
+    const lookup = stationFromLookup(candidate, stations);
     if (lookup.station) return { station: lookup.station, choiceNeeded: null, error: null };
     if (lookup.choiceNeeded) return { station: null, choiceNeeded: lookup.choiceNeeded, error: null };
   }
@@ -801,6 +806,21 @@ async function orchestrateSingleTurn(
     }
   }
 
+  // Chips didn't render — re-offer the train's real classes instead of "samajh nahi".
+  if (state.context.lastAskedField === 'selectedClass' && !u.slots.travelClass) {
+    const chipComplaint = /chip|card pe|show nahi|nhi show|nahi show|dikha nahi|dikhai nahi|class nahi dikh|class nhi dikh/i.test(userMessage);
+    if (chipComplaint) {
+      const trainNumber =
+        state.context.selectedTrain?.number ??
+        state.context.lastReferencedTrain?.number ??
+        state.context.pendingDataRoute?.trainNumber ??
+        null;
+      if (trainNumber) await ensureTrainClasses(state, trainNumber);
+      const intent = state.context.lastIntent ?? state.context.pendingDataRoute?.intent ?? 'GET_AVAILABILITY';
+      return finish(state, intent, askClassNow(state), { usedFallbackNlu: understood.usedFallbackNlu });
+    }
+  }
+
   // Mid-flow change ("2 nahi 3 passengers", "CC nahi SL") beats passenger-field capture.
   if (state.context.bookingStage !== 'IDLE') {
     const changeEarly = detectBookingChange(userMessage, state.context);
@@ -875,12 +895,13 @@ async function orchestrateSingleTurn(
       state.context.bookingStage === 'SEARCH_RESULTS')
   ) {
     const hasTrain = state.context.selectedTrain !== null;
-    const question = hasTrain
-      ? `Kaunsi class chahiye ${state.context.selectedTrain!.number} mein? Card pe 1A/2A/3A/SL/CC tap karein, ya type karein.`
-      : 'Kaunsi train aur class chahiye? Train card pe class (jaise 3A, SL, CC) tap karein, ya "12014 mein 3A" type karein.';
+    if (hasTrain) {
+      return finish(state, 'BOOK_TRAIN', askClassNow(state), { usedFallbackNlu: understood.usedFallbackNlu });
+    }
+    const question = 'Kaunsi train aur class chahiye? Train card pe class (jaise 3A, SL, CC) tap karein, ya "12014 mein 3A" type karein.';
     state.context = updateConversationMeta(
       state.context,
-      { lastAskedField: hasTrain ? 'selectedClass' : 'selectedTrain', pendingQuestion: question },
+      { lastAskedField: 'selectedTrain', pendingQuestion: question },
       nowIso(state),
     );
     return finish(state, 'BOOK_TRAIN', question, { usedFallbackNlu: understood.usedFallbackNlu });
@@ -1170,6 +1191,27 @@ async function maybeHandleAiToolRequest(state: TurnState, u: AIUnderstandingResu
       return finish(state, intent as Intent, toolRequest.tool === 'getAvailability'
         ? 'Kis route ke liye availability chahiye? (jaise: Amritsar se Ludhiana)'
         : 'Kis route ka fare chahiye? (jaise: Amritsar se Ludhiana)', { usedFallbackNlu: usedFallback });
+    }
+  }
+
+  // Never execute availability without a class — offer the train's API classes as chips.
+  if (toolRequest.tool === 'getAvailability') {
+    const trainNumber = resolveTurnTrainNumber(u, state.context);
+    const travelClass = u.slots.travelClass ?? state.context.selectedClass;
+    if (trainNumber && !travelClass && state.context.origin?.code && state.context.destination?.code) {
+      const journeyDate = (u.slots.dateText ? resolveDateText(u.slots.dateText, state.now) : null) ?? state.context.journeyDate;
+      if (!journeyDate) {
+        snapshotPendingDataRoute(state, u, 'GET_AVAILABILITY', trainNumber);
+        state.context = updateConversationMeta(
+          state.context,
+          { lastAskedField: 'journeyDate', pendingQuestion: 'Kis date ke liye availability chahiye? (aaj/kal/parso ya date)' },
+          nowIso(state),
+        );
+        return finish(state, 'GET_AVAILABILITY', 'Kis date ke liye availability chahiye? (aaj/kal/parso ya date)', { usedFallbackNlu: usedFallback });
+      }
+      snapshotPendingDataRoute(state, u, 'GET_AVAILABILITY', trainNumber);
+      await ensureTrainClasses(state, trainNumber);
+      return finish(state, 'GET_AVAILABILITY', askClassNow(state), { usedFallbackNlu: usedFallback });
     }
   }
 
@@ -1626,14 +1668,41 @@ function missingJourneyFields(context: ConversationContext): ContextSlotField[] 
 const PASSENGER_COUNT_CHIPS = ['1', '2', '3', '4', '5', '6'] as const;
 
 function offeredClassCodes(context: ConversationContext): string[] {
-  return [...(context.selectedTrain?.travelClasses ?? [])].map((code) => code.toUpperCase()).filter(Boolean);
+  const fromSelected = [...(context.selectedTrain?.travelClasses ?? [])].map((code) => code.toUpperCase()).filter(Boolean);
+  if (fromSelected.length > 0) return fromSelected;
+  return [...(context.lastReferencedTrain?.travelClasses ?? [])].map((code) => code.toUpperCase()).filter(Boolean);
 }
 
-/** Deterministic class prompt + chips from the selected train — never a generic AI menu. */
+const FALLBACK_CLASS_CHIPS = ['SL', '3A', '2A', '1A', 'CC', '2S'] as const;
+
+/** Pull travelClasses from getTrainInfo (live API) so class chips are real, not empty. */
+async function ensureTrainClasses(state: TurnState, trainNumber: string): Promise<string[]> {
+  const existing = offeredClassCodes(state.context);
+  if (existing.length > 0) return existing;
+  const result = await executeTool(state, 'getTrainInfo', { trainNumber });
+  const train = dataOf<Train>(result);
+  const classes = [...(train?.travelClasses ?? [])]
+    .map((code) => code.toUpperCase())
+    .filter((code): code is TravelClassCode =>
+      code === '1A' || code === '2A' || code === '3A' || code === '3E' || code === 'CC' || code === 'EC' || code === 'SL' || code === '2S');
+  if (train && classes.length > 0 && (!train.number || train.number === trainNumber)) {
+    const stamped: Train = { ...train, number: trainNumber, travelClasses: classes };
+    if (!state.context.selectedTrain || state.context.selectedTrain.number === trainNumber) {
+      state.context = setContextSlots(state.context, { selectedTrain: stamped }, 'FILL_MISSING', nowIso(state));
+    }
+    state.context = { ...state.context, lastReferencedTrain: stamped, updatedAt: nowIso(state) };
+    return classes;
+  }
+  rememberTrain(state, trainNumber);
+  return [];
+}
+
+/** Deterministic class prompt + chips from the train (API) — never "tap a card" with no cards. */
 function askClassNow(state: TurnState): string {
   const offered = offeredClassCodes(state.context);
-  const question = askForClass(offered.length > 0 ? offered : null);
-  state.chips = offered.length > 0 ? offered : null;
+  const chips = offered.length > 0 ? offered : [...FALLBACK_CLASS_CHIPS];
+  const question = askForClass(chips);
+  state.chips = chips;
   state.context = updateConversationMeta(
     state.context,
     { lastAskedField: 'selectedClass', pendingQuestion: question },
@@ -1801,7 +1870,14 @@ async function resumePausedDataRoute(state: TurnState, u: AIUnderstandingResult,
   if (state.context.stationChoices) return null; // defer to active station-choice
   if (!state.context.origin?.code || !state.context.destination?.code) return null; // route still incomplete
   state.context = { ...state.context, pendingDataRoute: null, updatedAt: nowIso(state) };
-  const restored: AIUnderstandingResult = { ...u, slots: { ...u.slots, trainNumber: pending.trainNumber, travelClass: pending.travelClass } };
+  const restored: AIUnderstandingResult = {
+    ...u,
+    slots: {
+      ...u.slots,
+      trainNumber: pending.trainNumber,
+      travelClass: u.slots.travelClass ?? pending.travelClass,
+    },
+  };
   return pending.intent === 'GET_AVAILABILITY' ? handleAvailability(state, restored, usedFallback) : handleFare(state, restored, usedFallback);
 }
 
@@ -1901,7 +1977,7 @@ async function handlePendingDataRoute(
       // The train/class the user already named — needed because the follow-up
       // may only contain the route. journeyDate is recovered from context.
       trainNumber: pending.trainNumber,
-      travelClass: pending.travelClass,
+      travelClass: u.slots.travelClass ?? pending.travelClass ?? state.context.selectedClass,
     },
   };
   return intent === 'GET_AVAILABILITY' ? handleAvailability(state, restoredAIAsU, usedFallback) : handleFare(state, restoredAIAsU, usedFallback);
@@ -2100,7 +2176,15 @@ async function handleSlotFiller(
   context = updateConversationMeta(context, { lastAskedField: null, pendingQuestion: null }, nowIso(state));
   state.context = context;
 
-  // ── continue the flow ──
+  // A paused READ data-intent (availability/fare) that was collecting a date/class
+  // resumes that SAME intent, not a booking journey — even if selectedTrain was
+  // filled so we could offer class chips.
+  if (state.context.pendingDataRoute) {
+    const resumed = await resumePausedDataRoute(state, u, usedFallback);
+    if (resumed) return resumed;
+  }
+
+  // ── continue the booking flow ──
   if (askedField === 'selectedClass' && context.selectedTrain && context.selectedClass) {
     transitionStage(state, 'CLASS_SELECTED');
     return continueBookingFlow(state, usedFallback);
@@ -2109,13 +2193,6 @@ async function handleSlotFiller(
   if (askedField === 'passengerCount' && context.selectedTrain && context.selectedClass) {
     transitionStage(state, 'CLASS_SELECTED');
     return continueBookingFlow(state, usedFallback);
-  }
-
-  // A paused READ data-intent (availability/fare) that was collecting a date/class
-  // resumes that SAME intent, not a booking journey.
-  if (state.context.pendingDataRoute) {
-    const resumed = await resumePausedDataRoute(state, u, usedFallback);
-    if (resumed) return resumed;
   }
 
   // journey fields → continue the journey flow
@@ -2956,6 +3033,7 @@ async function handleAvailability(state: TurnState, u: AIUnderstandingResult, us
   const travelClass = u.slots.travelClass ?? state.context.selectedClass;
   if (!travelClass) {
     snapshotPendingDataRoute(state, u, 'GET_AVAILABILITY', trainNumber);
+    await ensureTrainClasses(state, trainNumber);
     return finish(state, 'GET_AVAILABILITY', askClassNow(state), { usedFallbackNlu: usedFallback });
   }
   // FIX (user complaint): if the selected train's VERIFIED classes don't include the

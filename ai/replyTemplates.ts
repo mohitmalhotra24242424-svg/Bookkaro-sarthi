@@ -42,8 +42,8 @@ export function trainLabel(train: { number: string; name: string | null }): stri
 /** Class question lists ONLY the train's real classes — never a generic IRCTC menu. */
 export function askForClass(offered: readonly string[] | null | undefined): string {
   const classes = [...(offered ?? [])].map((code) => code.trim().toUpperCase()).filter(Boolean);
-  if (classes.length > 0) return `Kaunsi class chahiye? (${classes.join(', ')})`;
-  return 'Kaunsi class chahiye? Card pe class tap karein.';
+  if (classes.length > 0) return `Kaunsi class chahiye? (${classes.join(', ')}) — neeche chip tap karein, ya type karein.`;
+  return 'Kaunsi class chahiye? (SL, 3A, 2A, CC) — neeche chip tap karein, ya type karein.';
 }
 
 export function askForField(field: ContextSlotField): string {

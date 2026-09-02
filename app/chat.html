@@ -508,11 +508,21 @@
   dynChips.className = 'chips';
   dynamicWrap.appendChild(dynChips);
   document.querySelector('.comp-wrap').parentNode.insertBefore(dynamicWrap, document.querySelector('.comp-wrap'));
-  function refreshDynamicChips(lastBotReply) {
-    var kind = detectChipKind(lastBotReply);
-    if (!kind) { dynamicWrap.style.display = 'none'; dynChips.innerHTML = ''; return; }
+  function refreshDynamicChips(lastBotReply, serverChips) {
+    var items = [];
+    if (Array.isArray(serverChips) && serverChips.length) {
+      items = serverChips.map(function (s) { return String(s); }).filter(Boolean);
+    } else {
+      var fromClass = classesFromReply(lastBotReply);
+      var fromBerth = berthsFromReply(lastBotReply);
+      var kind = detectChipKind(lastBotReply);
+      if (fromClass) items = fromClass;
+      else if (fromBerth) items = fromBerth;
+      else if (kind) items = CHIP_SETS[kind] || [];
+    }
+    if (!items.length) { dynamicWrap.style.display = 'none'; dynChips.innerHTML = ''; return; }
     dynChips.innerHTML = '';
-    (CHIP_SETS[kind] || []).forEach(function (v) {
+    items.forEach(function (v) {
       var b = document.createElement('button');
       b.className = 'chip'; b.type = 'button'; b.textContent = v;
       dynChips.appendChild(b);

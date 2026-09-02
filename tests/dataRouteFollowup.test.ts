@@ -9,9 +9,10 @@
  * resolving both stations, and asking only for whatever is still missing.
  */
 import { describe, expect, it } from 'vitest';
-import { createHarness, freshContext, run } from './orchestration/harness.js';
+import { createHarness, freshContext, run, ASR, LDH, NDLS, DLI, NZM } from './orchestration/harness.js';
 import type { AIProvider, AIUnderstandingInput, AIUnderstandingResult } from '../ai/AIProvider.js';
 import type { AIReplyInput, AIReplyResult } from '../ai/AIProvider.js';
+import { providerSuccess } from '../shared/index.js';
 
 /** Stub AI that proposes a getAvailability tool request (AI-primary tool path). */
 function stubAiAvailabilityRequest(): AIProvider {
@@ -146,5 +147,133 @@ describe('data-intent route follow-up ("A se B" answers the route question)', ()
     expect(t1.intent).toBe('GET_AVAILABILITY');
     // No spoofed station from the verb; still asks for the route.
     expect(t1.reply).toMatch(/route ke liye/i);
+  });
+});
+
+describe('one-line 12054 Amritsar JN → Ludhiana JN availability', () => {
+  const ASRA = { code: 'ASRA', name: 'AMRITSAR CBA', zone: null, state: 'Punjab', latitude: null, longitude: null };
+  const VKA = { code: 'VKA', name: 'VERKA JN', zone: null, state: 'Punjab', latitude: null, longitude: null, city: 'Amritsar' };
+  const JAN = {
+    number: '12054',
+    name: 'ASR JAN SHATABDI',
+    originStation: { code: 'ASR', name: 'AMRITSAR JN', zone: null, state: 'Punjab', latitude: null, longitude: null },
+    destinationStation: { code: 'NDLS', name: 'New Delhi', zone: null, state: 'Delhi', latitude: null, longitude: null },
+    departureTime: '07:00',
+    arrivalTime: '13:10',
+    runsOn: ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'] as const,
+    travelClasses: ['CC', '2S', 'EC'] as const,
+    pantryCar: true,
+  };
+
+  it('resolves ASR+LDH (not Verka/CBA) and only asks the date', async () => {
+    const harness = createHarness(
+      { trainInfo: providerSuccess('RAILCORE', JAN) },
+      { stations: [ASR, ASRA, VKA, LDH, NDLS, DLI, NZM] },
+    );
+    const t1 = await run(
+      harness,
+      freshContext(),
+      'Mujhe 12054 ki amritsar jn se ludhiana jn ki seat availability btana',
+    );
+    expect(t1.intent).toBe('GET_AVAILABILITY');
+    expect(t1.context.origin?.code).toBe('ASR');
+    expect(t1.context.destination?.code).toBe('LDH');
+    expect(t1.reply).toMatch(/date/i);
+    expect(t1.reply).not.toMatch(/EK station choose|AMRITSAR CBA|VERKA|ASRA|VKA/i);
+    expect(t1.context.stationChoices).toBeNull();
+  });
+
+  it('after date, class chips come from getTrainInfo — never empty "card pe class tap"', async () => {
+    const harness = createHarness(
+      { trainInfo: providerSuccess('RAILCORE', JAN) },
+      { stations: [ASR, ASRA, VKA, LDH, NDLS, DLI, NZM] },
+    );
+    const t1 = await run(
+      harness,
+      freshContext(),
+      'Mujhe 12054 ki amritsar jn se ludhiana jn ki seat availability btana',
+    );
+    const t2 = await run(harness, t1.context, 'kal');
+    expect(t2.intent).toBe('GET_AVAILABILITY');
+    expect(t2.executedTools).toContain('getTrainInfo');
+    expect(t2.chips).toEqual(['CC', '2S', 'EC']);
+    expect(t2.reply).toMatch(/Kaunsi class chahiye\? \(CC, 2S, EC\)/);
+    expect(t2.reply).toMatch(/chip tap/i);
+    expect(t2.reply).not.toMatch(/Card pe class tap karein\.?$/);
+    expect(t2.context.lastAskedField).toBe('selectedClass');
+  });
+
+  it('after class tap, fetches provider availability — never invents seats', async () => {
+    const harness = createHarness(
+      {
+        trainInfo: providerSuccess('RAILCORE', JAN),
+        availability: providerSuccess('RAILCORE', {
+          trainNumber: '12054',
+          journeyDate: '2026-08-27',
+          travelClass: 'CC',
+          quota: 'GN',
+          status: 'AVAILABLE',
+          availableCount: 18,
+          racCount: null,
+          waitlistNumber: null,
+          asOf: null,
+        }),
+      },
+      { stations: [ASR, ASRA, VKA, LDH, NDLS, DLI, NZM] },
+    );
+    let context = (await run(harness, freshContext(), 'Mujhe 12054 ki amritsar jn se ludhiana jn ki seat availability btana')).context;
+    context = (await run(harness, context, 'kal')).context;
+    const t3 = await run(harness, context, 'CC');
+    expect(t3.intent).toBe('GET_AVAILABILITY');
+    expect(t3.executedTools).toContain('getAvailability');
+    expect(t3.reply).toMatch(/AVAILABLE|18/i);
+    expect(t3.reply).not.toMatch(/andaza|guess/i);
+  });
+
+  it('NVIDIA city-expanded "Amritsar" still keeps user "amritsar jn" → ASR', async () => {
+    const { providerSuccess } = await import('../shared/index.js');
+    const { ASR, LDH, NDLS, DLI, NZM, createHarness, freshContext, run } = await import('./orchestration/harness.js');
+    const steal: AIProvider = {
+      providerId: 'nvidia-steal',
+      async understand() {
+        return {
+          intent: 'GET_AVAILABILITY',
+          confidence: 0.9,
+          slots: {
+            originQuery: 'Amritsar',
+            destinationQuery: 'Ludhiana',
+            journeyDate: null,
+            dateText: null,
+            passengerCount: null,
+            trainNumber: '12054',
+            secondTrainNumber: null,
+            travelClass: null,
+            pnr: null,
+            resultReference: null,
+            isCorrection: false,
+            mentionedStations: ['Amritsar', 'Ludhiana'],
+            glossaryTerm: null,
+          },
+          missingFields: [],
+          toolRequest: null,
+        };
+      },
+      async generateResponse() {
+        return { askForField: null, message: 'n/a' };
+      },
+    };
+    const harness = createHarness(
+      { trainInfo: providerSuccess('RAILCORE', JAN) },
+      { stations: [ASR, ASRA, VKA, LDH, NDLS, DLI, NZM] },
+    );
+    const t1 = await run(
+      harness,
+      freshContext(),
+      'Mujhe 12054 ki amritsar jn se ludhiana jn ki seat availability btana',
+      { ai: steal },
+    );
+    expect(t1.context.origin?.code).toBe('ASR');
+    expect(t1.context.destination?.code).toBe('LDH');
+    expect(t1.reply).not.toMatch(/EK station choose|ASRA|VERKA/i);
   });
 });

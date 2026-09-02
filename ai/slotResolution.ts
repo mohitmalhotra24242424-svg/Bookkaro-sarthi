@@ -219,8 +219,53 @@ function choiceList(stations: Station[]): Station[] {
  */
 export function stationFromLookup(query: string, stations: Station[]): { station: Station | null; choiceNeeded: Station[] | null } {
   if (stations.length === 0) return { station: null, choiceNeeded: null };
-  const lowered = query.trim().toLowerCase();
+  const trimmed = query.trim();
+  const lowered = trimmed.toLowerCase();
   const unique = uniqueByCode(stations);
+
+  // "amritsar jn" / "ldh jn" / "ludhiana junction" — the user named the TYPE.
+  // Prefer the matching JN/CANTT among provider results instead of asking ASR vs ASRA vs VKA.
+  const suffixMatch = trimmed.match(/^(.+?)\s+(jn\.?|jnc|junction|cantt\.?|cant|cantonment)$/i);
+  const qualifier = suffixMatch?.[2]?.toLowerCase().replace(/\./g, '') ?? null;
+  const core = (suffixMatch?.[1] ?? trimmed).trim();
+  const coreLower = core.toLowerCase();
+
+  const byCodeCore = unique.filter((station) => station.code.toLowerCase() === coreLower);
+  if (byCodeCore.length === 1 && byCodeCore[0]) return { station: byCodeCore[0], choiceNeeded: null };
+
+  const byFullName = unique.filter((station) => (station.name ?? '').toLowerCase() === lowered);
+  if (byFullName.length === 1 && byFullName[0] && suffixMatch) {
+    return { station: byFullName[0], choiceNeeded: null };
+  }
+
+  if (qualifier && /^(jn|jnc|junction)$/.test(qualifier)) {
+    const jnHits = unique.filter((station) => {
+      const name = (station.name ?? '').toLowerCase();
+      if (!/\bjn\b|\bjunction\b/.test(name)) return false;
+      return station.code.toLowerCase() === coreLower || stationBaseName(name) === coreLower || stationMentionsQuery(station, coreLower);
+    });
+    const exactJn = jnHits.filter((station) => {
+      const name = (station.name ?? '').toLowerCase();
+      return station.code.toLowerCase() === coreLower || stationBaseName(name) === coreLower;
+    });
+    const jnChoice = choiceList(exactJn.length > 0 ? exactJn : jnHits);
+    if (jnChoice.length === 1 && jnChoice[0]) return { station: jnChoice[0], choiceNeeded: null };
+    if (jnChoice.length > 1) return { station: null, choiceNeeded: jnChoice };
+  }
+  if (qualifier && /^(cantt|cant|cantonment)$/.test(qualifier)) {
+    const canttHits = unique.filter((station) => {
+      const name = (station.name ?? '').toLowerCase();
+      if (!/\bcantt\b|\bcant\b|\bcantonment\b/.test(name)) return false;
+      return station.code.toLowerCase() === coreLower || stationBaseName(name) === coreLower || stationMentionsQuery(station, coreLower);
+    });
+    const exactCantt = canttHits.filter((station) => {
+      const name = (station.name ?? '').toLowerCase();
+      return station.code.toLowerCase() === coreLower || stationBaseName(name) === coreLower;
+    });
+    const canttChoice = choiceList(exactCantt.length > 0 ? exactCantt : canttHits);
+    if (canttChoice.length === 1 && canttChoice[0]) return { station: canttChoice[0], choiceNeeded: null };
+    if (canttChoice.length > 1) return { station: null, choiceNeeded: canttChoice };
+  }
 
   const byCode = unique.filter((station) => station.code.toLowerCase() === lowered);
   if (byCode.length === 1 && byCode[0]) return { station: byCode[0], choiceNeeded: null };
