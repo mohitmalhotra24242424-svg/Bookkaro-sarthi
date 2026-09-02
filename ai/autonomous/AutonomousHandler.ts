@@ -265,10 +265,18 @@ async function runCore(
     return s.code === (s.name ?? "").toUpperCase() && s.zone === null;
   }
 
-  // Resolve both stations (serially, simple).
-  const originRes = await resolveAndSetStation('origin', originName);
-  const destRes = await resolveAndSetStation('destination', destName);
-  if (originRes === 'ambiguous' || destRes === 'ambiguous') {
+  // Resolve both stations; collect ambiguity (don't early-return on first ambiguity so
+  // the first unambiguous resolution still gets saved before we ask about the other).
+  let ambiguousField: 'origin' | 'destination' | null = null;
+  if (originName) {
+    const r = await resolveAndSetStation('origin', originName);
+    if (r === 'ambiguous') ambiguousField = 'origin';
+  }
+  if (!ambiguousField && destName) {
+    const r = await resolveAndSetStation('destination', destName);
+    if (r === 'ambiguous') ambiguousField = 'destination';
+  }
+  if (ambiguousField) {
     return finalize(context.pendingQuestion!, u, [], null, null, context, correctionsApplied, resumedPausedBooking);
   }
 
