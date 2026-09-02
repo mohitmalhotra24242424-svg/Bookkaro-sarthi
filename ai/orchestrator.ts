@@ -356,6 +356,14 @@ async function finish(
         reply = (await maybeAiReply(state, reply)) ?? reply;
       }
     }
+  } else if (
+    (intent === 'HELP' || intent === 'NORMAL_CHAT') &&
+    !options.usedFallbackNlu &&
+    state.deps.ai.providerId !== 'deterministic-nlu'
+  ) {
+    // Greetings / thanks / off-topic: let the real model phrase the reply.
+    // Template stays the fallback if phrasing fails the safety gates.
+    reply = (await maybeAiReply(state, reply)) ?? reply;
   }
 
   const resumeSuffix =

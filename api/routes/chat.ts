@@ -1,14 +1,13 @@
 /**
  * POST /api/chat — AI-FIRST conversation endpoint.
  *
- * Railway questions are handed to the REAL AI (NVIDIA GPT-OSS → Nemotron
- * via runAiOrchestrator / orchestrateTurn) so intent is understood like
- * ChatGPT — not a regex keyword engine. The regex autonomous layer is
- * kept ONLY for pure meta chat (hi / thanks / bye) where no railway
- * slots or booking state are involved.
+ * EVERY turn is owned by the real AI (NVIDIA GPT-OSS → Nemotron via
+ * runAiOrchestrator / orchestrateTurn): greetings, thanks, railway search,
+ * follow-ups, slot answers. Regex / deterministic NLU is FALLBACK only when
+ * the model times out or returns unusable JSON — never the primary brain.
  *
  * Fallback chain (safe, never 500s):
- *   meta (autonomous) → NVIDIA orchestrator → deterministic NLU → honest apology.
+ *   NVIDIA orchestrator → deterministic NLU → regex autonomous (last resort) → honest apology.
  *
  * All tool execution still flows through the deterministic, validated
  * ToolRegistry → RailwayProviderRouter (RailCore primary → RailKit fallback).
@@ -22,13 +21,16 @@ import type { OrchestratorDependencies } from '../../ai/orchestrator.js';
 import type { ToolRegistry } from '../../tools/index.js';
 import type { ConversationStore } from '../conversations.js';
 import type { ConversationContext } from '../../shared/index.js';
-import { handleAutonomously, understandAutonomously } from '../../ai/autonomous/index.js';
+import { handleAutonomously } from '../../ai/autonomous/index.js';
 
 export interface ChatRouteContext {
   orchestrator: OrchestratorDependencies;
   toolRegistry: ToolRegistry;
   conversations: ConversationStore;
-  /** When true (default), the ChatGPT-style autonomous engine handles the turn. */
+  /**
+   * Last-resort only. When the NVIDIA orchestrator throws, the regex
+   * autonomous engine may still try to answer rather than 500.
+   */
   enableAutonomousHandler?: boolean;
   /** AI-first tool planner (optional). */
   planTools?: (message: string, context: ConversationContext) => Promise<{ intent: string; tools: { tool: string; args?: Record<string, unknown> }[] } | null>;
@@ -72,42 +74,6 @@ function apology(conversation: ConversationContext, code?: string) {
   };
 }
 
-/** Pure conversational intents the regex engine may handle without touching railway tools. */
-const META_ALWAYS = new Set([
-  'GREETING', 'FAREWELL', 'THANKS', 'PRAISE', 'HELP', 'CAPABILITY_QUERY',
-]);
-const META_IDLE = new Set([
-  ...META_ALWAYS,
-  'AFFIRMATION', 'NEGATION', 'HOLD_PAUSE', 'RESUME', 'GO_BACK', 'START_OVER',
-  'SMALL_TALK', 'NORMAL_CHAT', 'COMPLAINT', 'FRUSTRATION', 'REPEAT_REQUEST',
-]);
-
-function looksLikeRailwayUtterance(message: string): boolean {
-  return (
-    /\b(\d{4,6}|\d{10})\b/.test(message) ||
-    /\b(se|from|to|tak|train|trains|ticket|tickets|pnr|fare|book|booking|live|status|seat|seats|class|station|availability|timetable|cancel|cancelled|wallet|jaana|jana|chahiye)\b/i.test(message) ||
-    /से|ट्रेन|टिकट|किराया|स्टेशन/.test(message)
-  );
-}
-
-/**
- * Fast-path greetings/thanks through the regex layer. Everything else —
- * especially journey search, follow-ups, "kal", "haan", station chips —
- * goes to the NVIDIA AI orchestrator (the ChatGPT-like understander).
- */
-function shouldUseAutonomousMeta(message: string, conversation: ConversationContext): boolean {
-  if (conversation.stationChoices) return false;
-  if (conversation.lastAskedField) return false;
-  if (conversation.pendingQuestion) return false;
-  if (conversation.pendingDataRoute) return false;
-  if (looksLikeRailwayUtterance(message)) return false;
-
-  const preview = understandAutonomously(message, conversation);
-  if (META_ALWAYS.has(preview.primaryIntent) && preview.requiresNoTools) return true;
-  const idle = !conversation.bookingStage || conversation.bookingStage === 'IDLE';
-  return idle && META_IDLE.has(preview.primaryIntent) && preview.requiresNoTools;
-}
-
 function slotsOf(c: ConversationContext) {
   return {
     origin: c.origin?.code ?? null,
@@ -139,63 +105,11 @@ export async function handleChatRoute(
   }
   const userId = typeof body.userId === 'string' && body.userId.trim().length > 0 ? body.userId.trim().slice(0, 64) : 'guest';
   const conversationId = typeof body.conversationId === 'string' ? body.conversationId.trim().slice(0, 64) : null;
-  const useAutonomous = context.enableAutonomousHandler !== false; // enabled by default
+  const allowRegexFallback = context.enableAutonomousHandler !== false;
 
   const conversation = await context.conversations.getOrCreate(conversationId, userId);
 
-  // ── PATH 1: meta-only (hi / thanks / bye). Railway → NVIDIA AI. ──
-  if (useAutonomous && shouldUseAutonomousMeta(message, conversation)) {
-    try {
-      const result = await handleAutonomously(
-        { message, conversationId: conversation.id, context: conversation },
-        { registry: context.toolRegistry, now: context.orchestrator.now },
-      );
-      await context.conversations.save(result.context);
-      respond(res, 200, {
-        ok: true,
-        conversationId: result.context.id,
-        reply: result.reply,
-        intent: result.intent,
-        usedFallbackNlu: false,
-        executedTools: result.executedTools,
-        safetyRejections: [],
-        cards: result.cards,
-        panel: result.panel,
-        chips: null,
-        slots: slotsOf(result.context),
-        autonomous: {
-          used: true,
-          intent: result.intent,
-          confidence: result.confidence,
-          tone: result.diagnostics.tone,
-          sentiment: result.diagnostics.sentiment,
-          candidates: result.diagnostics.candidates,
-          correctionsApplied: result.diagnostics.correctionsApplied,
-          resumedPausedBooking: result.diagnostics.resumedPausedBooking,
-          multiIntents: result.diagnostics.multiIntents,
-        },
-        orchestration: {
-          intent: result.intent,
-          entities: Object.fromEntries(result.diagnostics.candidates.map((c) => [c.intent, c.confidence])),
-          requiredTools: result.executedTools,
-          toolArguments: {},
-          missingSlots: [],
-          interrupt: false,
-          resumeContext: null,
-          safety: { ...result.safety, rejections: [], toolCallBudget: 5 },
-          toolEnvelopes: [],
-          sourceClass: 'AUTONOMOUS_HANDLER',
-        },
-      });
-      return;
-    } catch (err) {
-      // Non-fatal: fall through to the legacy orchestrator path.
-      // eslint-disable-next-line no-console
-      console.warn('[autonomous handler error, falling back]', err instanceof Error ? err.message : err);
-    }
-  }
-
-  // ── PATH 2: Step-6 AI orchestrator (fallback) ──
+  // ── PRIMARY: NVIDIA AI orchestrator owns every turn (hi, thanks, trains, slots). ──
   let orchestrated;
   let turn;
   try {
@@ -204,12 +118,63 @@ export async function handleChatRoute(
       { ai: context.orchestrator.ai, registry: context.toolRegistry, aiTimeoutMs: context.orchestrator.aiTimeoutMs, now: context.orchestrator.now, planTools: context.planTools },
     );
     turn = orchestrated.turn ?? (await orchestrateTurn(context.orchestrator, conversation, message));
-  } catch {
+  } catch (err) {
+    if (allowRegexFallback) {
+      try {
+        const result = await handleAutonomously(
+          { message, conversationId: conversation.id, context: conversation },
+          { registry: context.toolRegistry, now: context.orchestrator.now },
+        );
+        await context.conversations.save(result.context);
+        respond(res, 200, {
+          ok: true,
+          conversationId: result.context.id,
+          reply: result.reply,
+          intent: result.intent,
+          usedFallbackNlu: true,
+          executedTools: result.executedTools,
+          safetyRejections: [],
+          cards: result.cards,
+          panel: result.panel,
+          chips: null,
+          slots: slotsOf(result.context),
+          autonomous: {
+            used: true,
+            intent: result.intent,
+            confidence: result.confidence,
+            tone: result.diagnostics.tone,
+            sentiment: result.diagnostics.sentiment,
+            candidates: result.diagnostics.candidates,
+            correctionsApplied: result.diagnostics.correctionsApplied,
+            resumedPausedBooking: result.diagnostics.resumedPausedBooking,
+            multiIntents: result.diagnostics.multiIntents,
+          },
+          orchestration: {
+            intent: result.intent,
+            entities: Object.fromEntries(result.diagnostics.candidates.map((c) => [c.intent, c.confidence])),
+            requiredTools: result.executedTools,
+            toolArguments: {},
+            missingSlots: [],
+            interrupt: false,
+            resumeContext: null,
+            safety: { ...result.safety, rejections: [], toolCallBudget: 5 },
+            toolEnvelopes: [],
+            sourceClass: 'AUTONOMOUS_HANDLER',
+          },
+        });
+        return;
+      } catch {
+        // fall through to apology
+      }
+    }
+    // eslint-disable-next-line no-console
+    console.warn('[orchestrator failed]', err instanceof Error ? err.message : err);
     respond(res, 200, apology(conversation, 'ORCHESTRATOR_FAILED'));
     return;
   }
   await context.conversations.save(turn.context);
 
+  const nvidiaOwned = !turn.usedFallbackNlu;
   respond(res, 200, {
     ok: true,
     conversationId: turn.context.id,
@@ -222,7 +187,7 @@ export async function handleChatRoute(
     panel: turn.panel,
     chips: turn.chips ?? null,
     slots: slotsOf(turn.context),
-    autonomous: { used: false, intent: turn.intent, confidence: 0.7, tone: 'friendly', sentiment: 'neutral' },
+    autonomous: { used: nvidiaOwned, intent: turn.intent, confidence: nvidiaOwned ? 0.9 : 0.7, tone: 'friendly', sentiment: 'neutral' },
     orchestration: {
       intent: orchestrated.intent,
       entities: orchestrated.entities,

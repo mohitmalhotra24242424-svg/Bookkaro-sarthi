@@ -4,6 +4,12 @@
     { "src": "app/**", "use": "@vercel/static" },
     { "src": "api/index.ts", "use": "@vercel/node" }
   ],
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  },
   "routes": [
     { "src": "/api/(.*)", "dest": "/api?bkpath=/api/$1" },
     { "src": "/", "dest": "/app/index.html" },
