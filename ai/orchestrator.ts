@@ -1673,36 +1673,78 @@ function offeredClassCodes(context: ConversationContext): string[] {
   return [...(context.lastReferencedTrain?.travelClasses ?? [])].map((code) => code.toUpperCase()).filter(Boolean);
 }
 
-const FALLBACK_CLASS_CHIPS = ['SL', '3A', '2A', '1A', 'CC', '2S'] as const;
+function asTravelClassCodes(raw: readonly string[] | null | undefined): TravelClassCode[] {
+  const out: TravelClassCode[] = [];
+  for (const code of raw ?? []) {
+    const upper = code.toUpperCase();
+    const ok =
+      upper === '1A' || upper === '2A' || upper === '3A' || upper === '3E' ||
+      upper === 'CC' || upper === 'EC' || upper === 'SL' || upper === '2S';
+    if (ok && !out.includes(upper as TravelClassCode)) out.push(upper as TravelClassCode);
+  }
+  return out;
+}
 
-/** Pull travelClasses from getTrainInfo (live API) so class chips are real, not empty. */
+function stampTrainClasses(state: TurnState, trainNumber: string, classes: TravelClassCode[], train: Train | null): string[] {
+  const stamped: Train = train && (!train.number || train.number === trainNumber)
+    ? { ...train, number: trainNumber, travelClasses: classes }
+    : {
+        number: trainNumber,
+        name: train?.name ?? state.context.selectedTrain?.name ?? state.context.lastReferencedTrain?.name ?? null,
+        originStation: train?.originStation ?? state.context.selectedTrain?.originStation ?? null,
+        destinationStation: train?.destinationStation ?? state.context.selectedTrain?.destinationStation ?? null,
+        departureTime: train?.departureTime ?? null,
+        arrivalTime: train?.arrivalTime ?? null,
+        runsOn: train?.runsOn ?? null,
+        travelClasses: classes,
+        pantryCar: train?.pantryCar ?? null,
+      };
+  if (!state.context.selectedTrain || state.context.selectedTrain.number === trainNumber) {
+    state.context = setContextSlots(state.context, { selectedTrain: stamped }, 'FILL_MISSING', nowIso(state));
+  }
+  state.context = { ...state.context, lastReferencedTrain: stamped, updatedAt: nowIso(state) };
+  return classes;
+}
+
+/**
+ * Real provider classes only. RailCore /trains/{n} often omits `classes`;
+ * the schedule endpoint publishes them (e.g. 12054 → 2S, CC). Never invent SL/3A.
+ */
 async function ensureTrainClasses(state: TurnState, trainNumber: string): Promise<string[]> {
   const existing = offeredClassCodes(state.context);
   if (existing.length > 0) return existing;
-  const result = await executeTool(state, 'getTrainInfo', { trainNumber });
-  const train = dataOf<Train>(result);
-  const classes = [...(train?.travelClasses ?? [])]
-    .map((code) => code.toUpperCase())
-    .filter((code): code is TravelClassCode =>
-      code === '1A' || code === '2A' || code === '3A' || code === '3E' || code === 'CC' || code === 'EC' || code === 'SL' || code === '2S');
-  if (train && classes.length > 0 && (!train.number || train.number === trainNumber)) {
-    const stamped: Train = { ...train, number: trainNumber, travelClasses: classes };
-    if (!state.context.selectedTrain || state.context.selectedTrain.number === trainNumber) {
-      state.context = setContextSlots(state.context, { selectedTrain: stamped }, 'FILL_MISSING', nowIso(state));
-    }
-    state.context = { ...state.context, lastReferencedTrain: stamped, updatedAt: nowIso(state) };
-    return classes;
+
+  const infoResult = await executeTool(state, 'getTrainInfo', { trainNumber });
+  const train = dataOf<Train>(infoResult);
+  const fromInfo = asTravelClassCodes(train?.travelClasses);
+  if (fromInfo.length > 0) return stampTrainClasses(state, trainNumber, fromInfo, train);
+
+  const timetableResult = await executeTool(state, 'getTimetable', { trainNumber });
+  const timetable = dataOf<Timetable>(timetableResult);
+  const fromSchedule = asTravelClassCodes(timetable?.travelClasses);
+  if (fromSchedule.length > 0) {
+    return stampTrainClasses(state, trainNumber, fromSchedule, train ? { ...train, name: train.name ?? timetable?.trainName ?? null } : {
+      number: trainNumber,
+      name: timetable?.trainName ?? null,
+      originStation: null,
+      destinationStation: null,
+      departureTime: null,
+      arrivalTime: null,
+      runsOn: null,
+      travelClasses: fromSchedule,
+      pantryCar: null,
+    });
   }
+
   rememberTrain(state, trainNumber);
   return [];
 }
 
-/** Deterministic class prompt + chips from the train (API) — never "tap a card" with no cards. */
+/** Class prompt + chips from the train's verified API classes — never a generic menu. */
 function askClassNow(state: TurnState): string {
   const offered = offeredClassCodes(state.context);
-  const chips = offered.length > 0 ? offered : [...FALLBACK_CLASS_CHIPS];
-  const question = askForClass(chips);
-  state.chips = chips;
+  state.chips = offered.length > 0 ? offered : null;
+  const question = askForClass(offered.length > 0 ? offered : null);
   state.context = updateConversationMeta(
     state.context,
     { lastAskedField: 'selectedClass', pendingQuestion: question },

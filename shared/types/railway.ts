@@ -165,6 +165,8 @@ export interface Timetable {
   trainNumber: string;
   trainName: string | null;
   stops: readonly TrainStop[];
+  /** Classes from the schedule payload when the provider publishes them; null if not. */
+  travelClasses?: readonly TravelClassCode[] | null;
 }
 
 export type PNRStatusLevel = 'CONFIRMED' | 'RAC' | 'WAITLIST' | 'CANCELLED' | 'UNKNOWN';

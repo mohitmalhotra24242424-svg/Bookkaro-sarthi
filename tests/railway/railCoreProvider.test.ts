@@ -153,6 +153,7 @@ describe('RailCore normalization (MOCK — fixtures from official docs examples)
     expect(result.data.stops[0]?.arrivalTime).toBeNull(); // origin has no arrival
     expect(result.data.stops[1]?.haltMinutes).toBe(10);
     expect(result.data.stops[1]?.dayCount).toBe(2);
+    expect(result.data.travelClasses).toEqual(['SL', '3A', '2A', '1A']);
   });
 
   it('live status → LiveStatus with verified state mapping', async () => {

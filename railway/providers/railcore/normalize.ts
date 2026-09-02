@@ -168,7 +168,13 @@ export function normalizeRailCoreTimetable(body: unknown): Timetable | null {
       haltMinutes: pickNumber(stop, 'halt_minutes', 'halt'),
     });
   }
-  return { trainNumber: number, trainName: pickString(record, 'train_name'), stops };
+  return {
+    trainNumber: number,
+    trainName: pickString(record, 'train_name'),
+    stops,
+    // Schedule is the source of truth for classes — /trains/{n} often omits them.
+    travelClasses: normalizeTravelClasses(record.classes),
+  };
 }
 
 const LIVE_STATUS_MAP: Readonly<Record<string, LiveRunStatus>> = {

@@ -183,6 +183,61 @@ describe('one-line 12054 Amritsar JN → Ludhiana JN availability', () => {
     expect(t1.context.stationChoices).toBeNull();
   });
 
+  it('class chips come from schedule when trainInfo has no classes (12054 is 2S/CC, not SL/3A)', async () => {
+    const noClassInfo = { ...JAN, travelClasses: null };
+    const harness = createHarness(
+      {
+        trainInfo: providerSuccess('RAILCORE', noClassInfo),
+        timetable: providerSuccess('RAILCORE', {
+          trainNumber: '12054',
+          trainName: 'HW JANSHATABDI',
+          stops: [
+            { stationCode: 'ASR', stationName: 'AMRITSAR JN', arrivalTime: null, departureTime: '06:50', dayCount: 1, distanceKm: 0, haltMinutes: 0 },
+            { stationCode: 'LDH', stationName: 'LUDHIANA JN', arrivalTime: '08:00', departureTime: '08:02', dayCount: 1, distanceKm: 135, haltMinutes: 2 },
+          ],
+          travelClasses: ['2S', 'CC'],
+        }),
+      },
+      { stations: [ASR, ASRA, VKA, LDH, NDLS, DLI, NZM] },
+    );
+    const t1 = await run(
+      harness,
+      freshContext(),
+      'Mujhe 12054 ki amritsar jn se ludhiana jn ki seat availability btana',
+    );
+    const t2 = await run(harness, t1.context, 'kal');
+    expect(t2.intent).toBe('GET_AVAILABILITY');
+    expect(t2.executedTools).toContain('getTimetable');
+    expect(t2.chips).toEqual(['2S', 'CC']);
+    expect(t2.reply).toMatch(/Kaunsi class chahiye\? \(2S, CC\)/);
+    expect(t2.reply).not.toMatch(/\bSL\b|\b3A\b|\b2A\b|\b1A\b/);
+    expect(t2.context.selectedTrain?.travelClasses).toEqual(['2S', 'CC']);
+  });
+
+  it('never invents generic SL/3A chips when the provider published no classes', async () => {
+    const harness = createHarness(
+      {
+        trainInfo: providerSuccess('RAILCORE', { ...JAN, travelClasses: null }),
+        timetable: providerSuccess('RAILCORE', {
+          trainNumber: '12054',
+          trainName: 'HW JANSHATABDI',
+          stops: [],
+          travelClasses: null,
+        }),
+      },
+      { stations: [ASR, ASRA, VKA, LDH, NDLS, DLI, NZM] },
+    );
+    const t1 = await run(
+      harness,
+      freshContext(),
+      'Mujhe 12054 ki amritsar jn se ludhiana jn ki seat availability btana',
+    );
+    const t2 = await run(harness, t1.context, 'kal');
+    expect(t2.chips).toBeNull();
+    expect(t2.reply).not.toMatch(/\(SL/);
+    expect(t2.reply).not.toMatch(/SL, 3A/);
+  });
+
   it('after date, class chips come from getTrainInfo — never empty "card pe class tap"', async () => {
     const harness = createHarness(
       { trainInfo: providerSuccess('RAILCORE', JAN) },

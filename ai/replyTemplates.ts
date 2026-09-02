@@ -39,11 +39,11 @@ export function trainLabel(train: { number: string; name: string | null }): stri
 
 // ── questions (one missing field at a time) ─────────────────────────────────
 
-/** Class question lists ONLY the train's real classes — never a generic IRCTC menu. */
+/** Class question lists ONLY the train's real API classes — never a generic IRCTC menu. */
 export function askForClass(offered: readonly string[] | null | undefined): string {
   const classes = [...(offered ?? [])].map((code) => code.trim().toUpperCase()).filter(Boolean);
   if (classes.length > 0) return `Kaunsi class chahiye? (${classes.join(', ')}) — neeche chip tap karein, ya type karein.`;
-  return 'Kaunsi class chahiye? (SL, 3A, 2A, CC) — neeche chip tap karein, ya type karein.';
+  return 'Is train ki class list provider se nahi mili — class code type karein (andaza nahi).';
 }
 
 export function askForField(field: ContextSlotField): string {
