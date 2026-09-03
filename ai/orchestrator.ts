@@ -380,7 +380,7 @@ async function finish(
   const skipAi = toolsFailedHonestly || state.deps.ai.providerId === 'deterministic-nlu';
   if (!skipAi) {
     const narrated = await maybeAiReply(state, reply);
-    if (narrated && aiReplySafeForFacts(narrated, state, reply)) {
+    if (narrated && aiReplySafeForFacts(narrated, state, reply) && aiReplyKeepsPendingAsk(narrated, state)) {
       reply = narrated;
       const winnerFromCard = state.cards?.length === 1 ? state.cards[0]!.number : null;
       const winnerFromDraft = templateReply.match(/WINNER:\s*(\d{4,5})/i)?.[1] ?? null;
@@ -454,11 +454,79 @@ function aiReplySafeForFacts(text: string, state: TurnState, draft: string): boo
   return true;
 }
 
+function isCollectingBookingSlot(context: ConversationContext): boolean {
+  const field = context.lastAskedField;
+  return (
+    field === 'passengerCount' ||
+    field === 'waitlistConsent' ||
+    field === 'selectedClass' ||
+    field === 'journeyDate' ||
+    isPassengerField(field)
+  );
+}
+
+/** While we are collecting a booking slot, fare must not leak into the model's prompt. */
+function toolResultsForNarration(state: TurnState): readonly ToolResult[] {
+  if (!isCollectingBookingSlot(state.context) && !(state.context.passengerCount !== null && state.context.passengers.length < state.context.passengerCount)) {
+    return state.toolResults;
+  }
+  return state.toolResults.filter((result) => result.tool !== 'getFare' && result.tool !== 'createBookingDraft');
+}
+
+/** NVIDIA must not jump to fare/review while a passenger/class question is pending. */
+function aiReplyKeepsPendingAsk(text: string, state: TurnState): boolean {
+  const asked = state.context.lastAskedField;
+  if (!asked) return true;
+  const fareDump = /₹\s*\d|Railway fare|Total:\s*₹|BOOKING REVIEW|total payable/i.test(text);
+  if ((asked === 'passengerCount' || isPassengerField(asked) || asked === 'selectedClass' || asked === 'waitlistConsent') && fareDump) {
+    return false;
+  }
+  if (isPassengerField(asked) && !/(naam|age|umar|gender|berth|\?|bataiye|batao)/i.test(text)) {
+    return false;
+  }
+  if (asked === 'passengerCount' && !/(passenger|log|kitne|\?|1 se 6)/i.test(text)) {
+    return false;
+  }
+  return true;
+}
+
+function parsePassengerCountAnswer(message: string): number | null {
+  const trimmed = message.trim().toLowerCase().replace(/[?.!]+$/, '');
+  if (/^[1-6]$/.test(trimmed)) return Number(trimmed);
+  const words: Record<string, number> = {
+    ek: 1, one: 1, do: 2, two: 2, teen: 3, three: 3,
+    char: 4, chaar: 4, four: 4, panch: 5, paanch: 5, five: 5, chhe: 6, che: 6, six: 6,
+  };
+  if (words[trimmed] !== undefined) return words[trimmed]!;
+  const tagged = trimmed.match(/^([1-6])\s*(passenger|passengers|log|ticket|tickets)?$/);
+  if (tagged) return Number(tagged[1]);
+  return null;
+}
+
+function parseCombinedPassenger(text: string): { name: string; age: number; gender: 'M' | 'F' | 'T' } | null {
+  const trimmed = text.trim().replace(/\s+/g, ' ');
+  const match = trimmed.match(
+    /^([A-Za-z][A-Za-z .]{1,39}?)[, ]+(\d{1,3})[, ]+(M|F|T|male|female|man|woman|ladka|ladki|purush|stree|trans)$/i,
+  );
+  if (!match) return null;
+  const age = Number(match[2]);
+  if (!Number.isInteger(age) || age < 1 || age > 120) return null;
+  const token = match[3]!.toLowerCase();
+  const gender: 'M' | 'F' | 'T' = /^(m|male|man|ladka|purush)$/.test(token)
+    ? 'M'
+    : /^(f|female|woman|ladki|stree)$/.test(token)
+      ? 'F'
+      : 'T';
+  const name = match[1]!.replace(/\s+/g, ' ').trim();
+  if (!/^[A-Za-z][A-Za-z .]{1,39}$/.test(name)) return null;
+  return { name, age, gender };
+}
+
 /** Optional AI phrasing of a DATA-BACKED reply. Falls back to the template on any failure. */
 async function maybeAiReply(state: TurnState, _templateReply: string): Promise<string | null> {
   try {
     const result = await withTimeout(
-      state.deps.ai.generateResponse({ conversation: state.context, toolResults: state.toolResults, tone: 'FRIENDLY', userMessage: state.message, draftReply: _templateReply }),
+      state.deps.ai.generateResponse({ conversation: state.context, toolResults: toolResultsForNarration(state), tone: 'FRIENDLY', userMessage: state.message, draftReply: _templateReply }),
       state.deps.aiTimeoutMs ?? 6_000,
     );
     if (typeof result.message !== 'string' || result.message.trim().length < 5) return null;
@@ -869,6 +937,21 @@ async function orchestrateSingleTurn(
     }
   }
 
+  // Pending passenger-count chips ("1"–"6") always fill the count — even if NVIDIA
+  // labelled the tap as GET_FARE / UNKNOWN. Then we collect name/age/gender.
+  if (state.context.lastAskedField === 'passengerCount') {
+    const count = parsePassengerCountAnswer(userMessage) ?? u.slots.passengerCount;
+    if (count !== null && count >= 1 && count <= 6) {
+      return handleSlotFiller(
+        state,
+        u,
+        { kind: 'passengerCount', value: count },
+        understood.usedFallbackNlu,
+        userMessage,
+      );
+    }
+  }
+
   // Chips didn't render — re-offer the train's real classes instead of "samajh nahi".
   if (state.context.lastAskedField === 'selectedClass' && !u.slots.travelClass) {
     const chipComplaint = /chip|card pe|show nahi|nhi show|nahi show|dikha nahi|dikhai nahi|class nahi dikh|class nhi dikh/i.test(userMessage);
@@ -1052,7 +1135,7 @@ async function orchestrateSingleTurn(
     // stays authoritative; extraction is literal-only, so nothing is invented.
     const askedNow = state.context.lastAskedField;
     const wordCount = userMessage.trim().split(/\s+/).filter(Boolean).length;
-    const shortAnswer = isPassengerField(askedNow) ? wordCount <= 4 : wordCount <= 8;
+    const shortAnswer = isPassengerField(askedNow) ? wordCount <= 8 : wordCount <= 8;
     const answersAskedField =
       (askedNow === 'journeyDate' && u.slots.dateText !== null) ||
       (askedNow === 'passengerCount' && u.slots.passengerCount !== null) ||
@@ -1227,6 +1310,16 @@ function helpReply(): string {
 async function maybeHandleAiToolRequest(state: TurnState, u: AIUnderstandingResult, usedFallback: boolean): Promise<OrchestratorTurn | null> {
   const toolRequest = u.toolRequest;
   if (!toolRequest) return null;
+  // A pending passenger/class/count answer is NOT a fare/availability fetch.
+  // NVIDIA must not steal "1" / "Rahul" into getFare.
+  const explicitFareOrAvail = /\b(fare|price|kiraya|available|availability|milegi|waitlist)\b/i.test(state.message);
+  if (
+    isCollectingBookingSlot(state.context) &&
+    !explicitFareOrAvail &&
+    (toolRequest.tool === 'getFare' || toolRequest.tool === 'getAvailability' || toolRequest.tool === 'searchTrains')
+  ) {
+    return null;
+  }
   // Booking flows need origin/destination/date resolution + multi-turn safety —
   // those stay on the deterministic journey path (the AI still supplies slots).
   // Multi-step comparison also stays deterministic (uses stored results).
@@ -2025,7 +2118,7 @@ async function maybeHandleSearchSelection(
 
 function asSlotFiller(u: AIUnderstandingResult, context: ConversationContext, rawMessage?: string): SlotFiller | null {
   // §9: while a passenger field is being asked, any short plain reply is the answer.
-  if (isPassengerField(context.lastAskedField) && u.intent === 'UNKNOWN') {
+  if (isPassengerField(context.lastAskedField)) {
     return { kind: 'passengerDetail', value: null };
   }
   if (u.slots.dateText) return { kind: 'date', value: u.slots.dateText };
@@ -2558,6 +2651,39 @@ async function collectPassengerField(
   const currentIndex = context.passengers.length + 1;
   const text = rawMessage.trim();
   const draft = context.passengerDraft ?? { name: '', age: null, gender: null, berthPreference: null };
+
+  // Intelligent one-shot: "Rahul, 30, M" fills name+age+gender together.
+  if (field === 'passengerName') {
+    const combined = parseCombinedPassenger(text);
+    if (combined) {
+      const updatedDraft = {
+        name: combined.name,
+        age: combined.age,
+        gender: combined.gender,
+        berthPreference: null as string | null,
+      };
+      state.context = { ...context, passengerDraft: updatedDraft, updatedAt: nowIso(state) };
+      let nextField: ContextSlotField | null = berthsForClass(state.context.selectedClass) ? 'passengerBerth' : null;
+      if (nextField) {
+        const berthOpts = berthsForClass(state.context.selectedClass);
+        const question = passengerQuestion(nextField, currentIndex, total, berthOpts);
+        state.context = updateConversationMeta(state.context, { lastAskedField: nextField, pendingQuestion: question }, nowIso(state));
+        state.panel = { kind: 'passengers', current: currentIndex, total, label: `Passenger ${currentIndex}` };
+        state.chips = chipsForPassengerField(nextField, state.context.selectedClass);
+        return finish(state, 'BOOK_TRAIN', question, { usedFallbackNlu: usedFallback });
+      }
+      const passengers = [...state.context.passengers, updatedDraft];
+      state.context = { ...state.context, passengers, passengerDraft: null, updatedAt: nowIso(state) };
+      if (passengers.length < (state.context.passengerCount ?? passengers.length)) {
+        transitionStage(state, 'PASSENGER_DETAILS_REQUIRED');
+        const question = passengerQuestion('passengerName', passengers.length + 1, state.context.passengerCount ?? passengers.length);
+        state.context = updateConversationMeta(state.context, { lastAskedField: 'passengerName', pendingQuestion: question }, nowIso(state));
+        state.panel = { kind: 'passengers', current: passengers.length + 1, total: state.context.passengerCount ?? passengers.length, label: 'Passenger details' };
+        return finish(state, 'BOOK_TRAIN', question, { usedFallbackNlu: usedFallback });
+      }
+      return presentFinalReview(state, usedFallback, []);
+    }
+  }
 
   let value: string | number | null = null;
   if (field === 'passengerName' && /^[A-Za-z][A-Za-z .]{1,39}$/.test(text)) value = text.replace(/\s+/g, ' ');

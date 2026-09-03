@@ -353,6 +353,59 @@ describe('single-train search + class/passenger chips', () => {
     expect(turn.chips).toEqual(['1', '2', '3', '4', '5', '6']);
   });
 
+  it('after passenger count 1, asks passenger details — never jumps to fare', async () => {
+    const harness = createHarness();
+    let context = (await run(harness, freshContext(), 'ASR se LDH jaana hai')).context;
+    context = (await run(harness, context, 'kal')).context;
+    context = (await run(harness, context, '12014 mein CC chahiye')).context;
+    const turn = await run(harness, context, '1');
+    expect(turn.context.passengerCount).toBe(1);
+    expect(turn.context.lastAskedField).toBe('passengerName');
+    expect(turn.reply).toMatch(/naam/i);
+    expect(turn.reply).not.toMatch(/Railway fare|₹405|BOOKING REVIEW/i);
+    expect(turn.panel?.kind).toBe('passengers');
+  });
+
+  it('NVIDIA fare-dump after "1" is rejected — still asks passenger details', async () => {
+    const harness = createHarness();
+    let context = (await run(harness, freshContext(), 'ASR se LDH jaana hai')).context;
+    context = (await run(harness, context, 'kal')).context;
+    context = (await run(harness, context, '12014 mein CC chahiye')).context;
+    const steal: AIProvider = {
+      providerId: 'nvidia-fare-steal',
+      understand: async () => ({
+        intent: 'GET_FARE',
+        confidence: 0.9,
+        slots: { ...emptySlots() },
+        missingFields: [],
+        toolRequest: { tool: 'getFare', input: { trainNumber: '12014', from: 'ASR', to: 'LDH' }, rationale: 'fare' },
+      }),
+      generateResponse: async () => ({
+        message: 'Railway fare: ₹405.00 total payable hai bhai.',
+        askForField: null,
+      }),
+    };
+    const turn = await run(harness, context, '1', { ai: steal });
+    expect(turn.context.passengerCount).toBe(1);
+    expect(turn.context.lastAskedField).toBe('passengerName');
+    expect(turn.reply).toMatch(/naam/i);
+    expect(turn.reply).not.toMatch(/₹405|total payable/i);
+  });
+
+  it('one-shot "Rahul, 30, M" fills details instead of a rigid one-field wizard', async () => {
+    const harness = createHarness();
+    let context = (await run(harness, freshContext(), 'ASR se LDH jaana hai')).context;
+    context = (await run(harness, context, 'kal')).context;
+    context = (await run(harness, context, '12014 mein CC chahiye')).context;
+    context = (await run(harness, context, '1')).context;
+    const turn = await run(harness, context, 'Rahul, 30, M');
+    expect(turn.context.passengers).toHaveLength(1);
+    expect(turn.context.passengers[0]?.name).toBe('Rahul');
+    expect(turn.context.passengers[0]?.age).toBe(30);
+    expect(turn.context.passengers[0]?.gender).toBe('M');
+    expect(turn.reply).toMatch(/REVIEW|confirm/i);
+  });
+
   it('REGRET does not ask passengers — re-asks the train classes', async () => {
     const harness = createHarness({
       trainSearch: providerSuccess('RAILCORE', [{

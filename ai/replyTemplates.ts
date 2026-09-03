@@ -117,7 +117,7 @@ export function passengerQuestion(field: ContextSlotField, current: number, tota
   const progress = total > 1 ? `Passenger ${current} of ${total} — ` : `Passenger ${current} — `;
   switch (field) {
     case 'passengerName':
-      return `${progress}naam kya hai? (type karein)`;
+      return `${progress}naam, umar aur gender bataiye (jaise: Rahul, 30, M).`;
     case 'passengerAge':
       return `${progress}age kitni hai?`;
     case 'passengerGender':
