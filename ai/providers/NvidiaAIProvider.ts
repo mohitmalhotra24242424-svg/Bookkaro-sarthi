@@ -19,6 +19,7 @@ import type {
   AISlotExtraction,
   ConversationContext,
   Intent,
+  TrainSearchResult,
 } from '../../shared/index.js';
 import type { AIProvider } from '../AIProvider.js';
 
@@ -103,12 +104,13 @@ export class NvidiaAIProvider implements AIProvider {
         role: 'system',
         content:
           'You are BookKaro, a friendly Indian railway assistant. Reply in Hinglish (1–4 short sentences). ' +
-          'If the tool-results JSON has data: answer the USER question using ONLY those facts. Never invent train numbers, times, dates, fares, availability, stations or stop times. If the data does not contain the answer, say so plainly. ' +
+          'Answer the USER question using ONLY the verified JSON facts. Never invent train numbers, times, dates, fares, availability, stations or stop times. If the data does not contain the answer, say so plainly. ' +
+          'If currentSearchList is present: answer fastest/slowest/count/any list question from THAT list only. Name the winning train number. Do not dump the whole timetable. ' +
           'STOPPAGE vs SEATS: you do not memorize which trains halt where. If a timetable/stops list is in the JSON and the asked from/to station is NOT in it, say the train does NOT halt there. Never say AVAILABLE, waitlist, or "seats nahi" for a non-halt — that is stoppage, not inventory. ' +
-          'If tool results are empty: this is conversation (greeting, thanks, help, off-topic). Greet warmly, say you handle trains, live status, fare, PNR and booking, and invite them to ask. Never invent live railway facts. ' +
+          'If tool results are empty and there is no currentSearchList: this is conversation (greeting, thanks, help, off-topic). Greet warmly, say you handle trains, live status, fare, PNR and booking, and invite them to ask. Never invent live railway facts. ' +
           'No URLs, no markdown tables.',
       },
-      { role: 'user', content: `${user}\n\nVerified tool results JSON (only these facts may be used):\n${JSON.stringify(input.toolResults).slice(0, 4_000)}\n\nWrite the reply.` },
+      { role: 'user', content: `${user}\n\nVerified facts JSON (only these facts may be used):\n${verifiedReplyContext(input)}\n\nWrite the reply.` },
     ]);
     return { message: typeof body === 'string' ? body : String(body), askForField: null };
   }
@@ -174,6 +176,33 @@ export class NvidiaAIProvider implements AIProvider {
   }
 }
 
+
+export function compactSearchListForAi(results: readonly TrainSearchResult[], limit = 40): string {
+  return results.slice(0, limit).map((entry) => {
+    const dur = entry.durationMinutes != null
+      ? `${Math.floor(entry.durationMinutes / 60)}h${entry.durationMinutes % 60}m`
+      : '?';
+    const name = entry.train.name ? `(${entry.train.name})` : '';
+    return `${entry.train.number}${name} ${entry.departureTime ?? '?'}→${entry.arrivalTime ?? '?'} ${dur}`;
+  }).join('; ');
+}
+
+export function verifiedReplyContext(input: AIReplyInput): string {
+  const list = input.conversation.lastSearchResults ?? [];
+  const payload: Record<string, unknown> = { toolResults: input.toolResults };
+  if (list.length > 0) {
+    payload.currentSearchList = list.slice(0, 40).map((entry) => ({
+      number: entry.train.number,
+      name: entry.train.name,
+      departure: entry.departureTime,
+      arrival: entry.arrivalTime,
+      durationMinutes: entry.durationMinutes,
+      classes: entry.train.travelClasses ?? [],
+    }));
+  }
+  return JSON.stringify(payload).slice(0, 6_000);
+}
+
 // ── shared prompt/parse helpers (used by NVIDIA and Gemini) ──────────────────
 
 function toolCatalogueLine(tools: readonly string[]): string {
@@ -219,7 +248,7 @@ export function nluSystemPrompt(intents: readonly string[], availableTools: read
     'STOPPAGE: "X Y pe rukti hai?", "does train X stop at Y?" → {intent:"GET_TIMETABLE", tool:"getTimetable", toolInput:{trainNumber:"X"}} and put Y in mentionedStations (or origin/destination if "A se B"). You never decide halt yourself.',
     'AVAILABILITY/FARE/BOOKING on ANY named train + from/to: set tool getAvailability or getFare (or getTimetable). The SERVER always fetches the live commercial schedule first for THAT train and refuses if either station is not a commercial stop (passing a city ≠ halt). Same rule for every train — no special cases. NEVER invent "seats nahi"/WL/AVAILABLE for a non-halt; that is stoppage, not inventory.',
     'SEARCH: searchTrains results are filtered by the SERVER — only trains whose live commercial schedule HALTS at both from and to are listed. A DLI (Delhi Jn) train is not an NDLS train (do not merge Delhi terminals). BCT and MMCT are the same Mumbai Central station; CSTM and CSMT are the same CSMT. Never invent extra trains.',
-    'LIST INTELLIGENCE: when searchResults are already on screen and the user asks fastest / sabse tez / sabse fast / fast train / kam time / less time / jaldi pahunch / pahunchaye / earliest / latest / longest / slowest / kaunsi tez — intent COMPARE_TRAINS, tool null. NEVER call searchTrains again. Do NOT fill origin/destination unless the user named a NEW "X se Y" route this turn. The server picks the winner from the CURRENT verified list and shows ONLY that train.',
+    'LIST INTELLIGENCE (YOU own this — NLU is fallback only): when listOnScreen>0 and the user did NOT name a NEW "X se Y" / "from X to Y" route this turn, ANY question about those trains (fastest / sabse tez / sabse fast / fast train / kam time / less time / jaldi pahunch / pahunchaye / slowest / longest / earliest / latest / kaunsi tez / sabse dheere / kitni trains / kaunsi better) → intent COMPARE_TRAINS, tool null. NEVER call searchTrains again. Do NOT fill origin/destination unless this turn names a NEW route. The server verifies facts from the CURRENT list; YOU phrase the answer.',
     'LANG digits: accept Devanagari digits too (१२३ → 123) for train numbers and PNR.',
     'Intent hints: available/milegi/milega/WL questions → GET_AVAILABILITY; fare/price/paisa questions → GET_FARE;',
     'Wanting a class is BOOKING, not availability: "3A chahiye", "sleeper seat", "12014 mein 3A", "SL wali" → intent BOOK_TRAIN, fill trainNumber and/or travelClass.',
@@ -251,12 +280,9 @@ export function conversationNluHint(conversation: ConversationContext): string {
   const results = conversation.lastSearchResults ?? [];
   if (results.length > 0) {
     bits.push(
-      `searchResults=${results
-        .slice(0, 6)
-        .map((entry) => `${entry.train.number}:${(entry.train.travelClasses ?? []).join('/')}`)
-        .join(',')}`,
+      `searchResults=${compactSearchListForAi(results)}`,
     );
-    bits.push(`listOnScreen=${results.length} trains. Superlative (fastest/sabse tez/less time/kam time/jaldi pahunch) → intent COMPARE_TRAINS, tool null — NEVER searchTrains again.`);
+    bits.push(`listOnScreen=${results.length} trains. ANY question about this list (fastest/slowest/less time/kitni/better) → intent COMPARE_TRAINS, tool null — NEVER searchTrains again. You (the AI) answer; NLU is only fallback.`);
   }
   if (bits.length === 0) return 'Conversation context: (new chat)';
   return `Conversation context (do not invent beyond this): ${bits.join('; ')}`;

@@ -132,9 +132,9 @@ export function createAiPlanTools(
     // the deterministic COMPARE_TRAINS path — it compares stored search results,
     // not two fresh timetable fetches. Routing it to a multi-tool fetch would
     // return "data available nahi" (as seen live) instead of the comparison.
-    const isComparison = /(kaunsi (better|best|tez|jaldi)|kaun (better|best|tez)|sabse (tez|jaldi|fast|dheere)|compare|comparison|versus|\bvs\b|\bbetter\b|(?:aur|and|vs)\s+\d+)/i.test(message) ||
+    const isComparison = /(kaunsi (better|best|tez|jaldi)|kaun (better|best|tez)|sabse (tez|jaldi|fast|dheere|less)|fast(est)?|slowest|less time|kam time|pahunchaye|compare|comparison|versus|\bvs\b|\bbetter\b|(?:aur|and|vs)\s+\d+)/i.test(message) ||
       ((message.match(/\b\d{4,5}\b/g) ?? []).length >= 2);
-    if (isComparison) return null; // let the deterministic COMPARE_TRAINS path handle it
+    if (isComparison) return null; // conversational path: NVIDIA phrases from the verified list
 
     let result: { plan: import('./semantic-plan.js').SemanticPlan | null; usedNlu: boolean } | null = null;
     try {

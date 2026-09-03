@@ -16,7 +16,7 @@ import type {
   Intent,
 } from '../../shared/index.js';
 import type { AIProvider } from '../AIProvider.js';
-import { conversationNluHint, conversationTranscriptHint, emptySlots, extractJson, nluSystemPrompt } from './NvidiaAIProvider.js';
+import { conversationNluHint, conversationTranscriptHint, emptySlots, extractJson, nluSystemPrompt, verifiedReplyContext } from './NvidiaAIProvider.js';
 
 export interface GeminiAIProviderOptions {
   apiKey: string;
@@ -85,7 +85,7 @@ export class GeminiAIProvider implements AIProvider {
           {
             text:
               `Answer the user's question in friendly Hinglish using ONLY the facts in this verified JSON. Never invent trains, fares, availability, stations or stop times; if the asked station is not in the stop list, say so plainly; if data is missing, say unavailable. No URLs, no markdown tables.\n${user}\n\nVerified JSON:\n` +
-              JSON.stringify(input.toolResults).slice(0, 4_000),
+              verifiedReplyContext(input),
           },
         ],
       },

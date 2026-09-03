@@ -8,7 +8,7 @@ import { RailwayProviderRouter } from '../../railway/index.js';
 import type { RailwayProvider } from '../../railway/index.js';
 import { providerEmpty, providerFailure, providerSuccess } from '../../shared/index.js';
 import type { ProviderId, RailwayCapability, ProviderResult, Station, Timetable, TrainSearchResult } from '../../shared/index.js';
-import { createProductionToolRegistry } from '../../tools/executors/index.js';
+import { createProductionToolRegistry, clearStationCacheForTests } from '../../tools/executors/index.js';
 import { createInMemoryDraftStore } from '../../tools/executors/index.js';
 import { TOOL_PERMISSIONS, canAiRequestTool, toolPermission } from '../../tools/permissions.js';
 
@@ -342,6 +342,100 @@ describe('searchTrains commercial-halt filter', () => {
     expect(result.ok).toBe(true);
     const trains = result.data as TrainSearchResult[];
     expect(trains.map((row) => row.train.number)).toEqual(['12951']);
+  });
+
+  it('keeps unverified trains on the first search (complete list) and still drops proven non-halts', async () => {
+    clearStationCacheForTests();
+    const ldh: Station = { code: 'LDH', name: 'Ludhiana Jn', zone: null, state: null, latitude: null, longitude: null };
+    const asr: Station = { code: 'ASR', name: 'Amritsar Jn', zone: null, state: null, latitude: null, longitude: null };
+    const entry = (number: string, name: string): TrainSearchResult => ({
+      train: {
+        number,
+        name,
+        originStation: ldh,
+        destinationStation: asr,
+        departureTime: '05:00',
+        arrivalTime: '07:00',
+        runsOn: null,
+        travelClasses: ['SL'],
+        pantryCar: null,
+      },
+      fromStation: ldh,
+      toStation: asr,
+      departureTime: '05:00',
+      arrivalTime: '07:00',
+      durationMinutes: 120,
+    });
+    const stop = (stationCode: string): Timetable['stops'][number] => ({
+      stationCode,
+      stationName: stationCode,
+      arrivalTime: null,
+      departureTime: null,
+      dayCount: 1,
+      distanceKm: null,
+      haltMinutes: null,
+    });
+    const make = (id: ProviderId, caps: RailwayCapability[]): RailwayProvider =>
+      ({
+        providerId: id,
+        displayName: `${id}-fake`,
+        capabilities: caps,
+        supports: (c: RailwayCapability) => caps.includes(c),
+        stationLookup: () => Promise.resolve(providerEmpty(id)),
+        trainSearch: () =>
+          Promise.resolve(
+            providerSuccess('RAILCORE', [
+              entry('55555', 'Verified Halt'),
+              entry('66666', 'Proven Skip'),
+              entry('77777', 'Unverified Schedule'),
+            ]),
+          ),
+        trainInfo: () => Promise.resolve(providerEmpty(id)),
+        timetable: (q: { trainNumber: string }) => {
+          if (q.trainNumber === '55555') {
+            return Promise.resolve(
+              providerSuccess('RAILCORE', {
+                trainNumber: '55555',
+                trainName: 'Verified Halt',
+                stops: [stop('LDH'), stop('JUC'), stop('ASR')],
+              }),
+            );
+          }
+          if (q.trainNumber === '66666') {
+            return Promise.resolve(
+              providerSuccess('RAILCORE', {
+                trainNumber: '66666',
+                trainName: 'Proven Skip',
+                stops: [stop('NDLS'), stop('UMB'), stop('CDG')],
+              }),
+            );
+          }
+          return Promise.resolve(providerEmpty(id));
+        },
+        liveStatus: () => Promise.resolve(providerEmpty(id)),
+        availability: () => Promise.resolve(providerEmpty(id)),
+        fare: () => Promise.resolve(providerEmpty(id)),
+        pnr: () => Promise.resolve(providerEmpty(id)),
+        cancelledTrains: () => Promise.resolve(providerEmpty(id)),
+      }) as unknown as RailwayProvider;
+    const router = new RailwayProviderRouter({
+      providers: [make('RAILCORE', ['stationLookup', 'trainSearch', 'timetable', 'liveStatus', 'availability', 'fare'])],
+    });
+    const registry = createProductionToolRegistry({ router });
+    const result = await registry.execute(
+      {
+        id: 't-unverified',
+        tool: 'searchTrains',
+        input: { originCode: 'LDH', destinationCode: 'ASR', journeyDate: '2026-09-04' },
+        requestedBy: 'AI',
+        conversationId: null,
+        createdAt: new Date().toISOString(),
+      },
+      { actor: 'AI', userId: 'u', conversationId: null },
+    );
+    expect(result.ok).toBe(true);
+    const trains = result.data as TrainSearchResult[];
+    expect(trains.map((row) => row.train.number)).toEqual(['55555', '77777']);
   });
 
   it('lookupStation collapses BCT into MMCT so Mumbai Central is offered once', async () => {

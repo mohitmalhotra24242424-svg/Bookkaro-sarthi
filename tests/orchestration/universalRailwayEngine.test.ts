@@ -34,7 +34,7 @@ import {
 import { validateToolArguments } from '../../api/ai/tool-catalog.js';
 import { canonicalLookupQuery } from '../../ai/slotResolution.js';
 import { DeterministicNLUProvider } from '../../ai/providers/DeterministicNLUProvider.js';
-import { nluSystemPrompt, conversationTranscriptHint } from '../../ai/providers/NvidiaAIProvider.js';
+import { nluSystemPrompt, conversationTranscriptHint, conversationNluHint } from '../../ai/providers/NvidiaAIProvider.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -365,6 +365,47 @@ describe('universal engine: search-then-fastest follow-up', () => {
     expect(turn.reply).toMatch(/WINNER: 12014/);
     expect(turn.cards?.map((card) => card.number)).toEqual(['12014']);
     expect(harness.countCapability('trainSearch')).toBe(searchesBefore);
+  });
+
+  it('NVIDIA generateResponse phrases the fastest answer from the verified list (NLU is fallback only)', async () => {
+    const { harness, context } = await searched();
+    let sawList = 0;
+    const ai: AIProvider = {
+      providerId: 'nvidia-test',
+      async understand(): Promise<AIUnderstandingResult> {
+        return plan('COMPARE_TRAINS', {});
+      },
+      async generateResponse(input) {
+        sawList = input.conversation.lastSearchResults?.length ?? 0;
+        return {
+          message: 'Sabse tez 12014 Amritsar Shatabdi hai — 1h 55m mein pahunchti hai.',
+          askForField: null,
+        };
+      },
+    };
+    const turn = await run(harness, context, 'Fast train kon si hai jo sabse less time mein pahunchaye?', { ai });
+    expect(sawList).toBeGreaterThanOrEqual(2);
+    expect(turn.usedFallbackNlu).toBe(false);
+    expect(turn.reply).toMatch(/Sabse tez 12014/);
+    expect(turn.reply).toMatch(/WINNER: 12014/);
+    expect(turn.cards?.map((card) => card.number)).toEqual(['12014']);
+    expect(turn.executedTools).not.toContain('searchTrains');
+  });
+
+  it('invented train numbers in NVIDIA prose fall back to the verified template', async () => {
+    const { harness, context } = await searched();
+    const ai: AIProvider = {
+      providerId: 'nvidia-test',
+      async understand(): Promise<AIUnderstandingResult> {
+        return plan('COMPARE_TRAINS', {});
+      },
+      async generateResponse() {
+        return { message: 'Sabse tez 99999 Super Express hai.', askForField: null };
+      },
+    };
+    const turn = await run(harness, context, 'sabse tez kaunsi hai?', { ai });
+    expect(turn.reply).not.toMatch(/99999/);
+    expect(turn.reply).toMatch(/WINNER: 12014/);
   });
 });
 
@@ -832,6 +873,18 @@ describe('AI role + day-part clock contract (AI interprets, deterministic enforc
     expect(prompt).toMatch(/LIST INTELLIGENCE/i);
     expect(prompt).toMatch(/NEVER call searchTrains again/i);
     expect(prompt).toMatch(/COMPARE_TRAINS/i);
+    expect(prompt).toMatch(/NLU is fallback only/i);
+  });
+
+  it('NLU hint lists the full verified search (not just 6 trains) so the AI can pick the fastest of the whole list', () => {
+    const results = Array.from({ length: 8 }, (_, i) =>
+      train(String(12010 + i), `T${i}`, '05:00', '07:00', 100 + i, ['SL']),
+    );
+    const hint = conversationNluHint({ ...freshContext(), lastSearchResults: results });
+    expect(hint).toContain('12010');
+    expect(hint).toContain('12017');
+    expect(hint).toMatch(/listOnScreen=8/);
+    expect(hint).toMatch(/NLU is only fallback/i);
   });
 
   it('prompt states the authoritative day-part boundaries + the midnight rule (12 ke baad = morning, not night)', () => {

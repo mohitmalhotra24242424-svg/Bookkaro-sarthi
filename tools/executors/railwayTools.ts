@@ -185,7 +185,8 @@ async function loadStopsForTrain(
 /**
  * Drop trains whose live commercial schedule does not halt at BOTH ends
  * (RailCore /routes/trains lists BDTS/CSMT trains for a BCT query, DLI trains for NDLS).
- * Unverified schedule is dropped too — a fake BCT→NDLS card is worse than a shorter list.
+ * Confirmed non-halts are dropped (BCT junk, DLI≠NDLS). Unverified stays so
+ * the first search is the complete provider list — not a truncated retry.
  */
 async function keepTrainsServingSegment(
   router: RailwayProviderRouter,
@@ -197,11 +198,20 @@ async function keepTrainsServingSegment(
   const now = Date.now();
   const unique = [...new Set(results.map((entry) => entry.train.number).filter(Boolean))];
   const halt = new Map<string, boolean | null>();
-  await mapPool(unique, 3, async (trainNumber) => {
+  await mapPool(unique, 5, async (trainNumber) => {
     const stops = await loadStopsForTrain(router, trainNumber, now);
     halt.set(trainNumber, trainServesCommercialSegment(stops, fromCode, toCode));
   });
-  return results.filter((entry) => halt.get(entry.train.number) === true);
+  const unverified = unique.filter((trainNumber) => halt.get(trainNumber) == null);
+  if (unverified.length > 0) {
+    await mapPool(unverified, 4, async (trainNumber) => {
+      const stops = await loadStopsForTrain(router, trainNumber, now);
+      halt.set(trainNumber, trainServesCommercialSegment(stops, fromCode, toCode));
+    });
+  }
+  // Drop ONLY trains the schedule PROVES do not serve this segment.
+  // Unverified (null) stays so the first search is complete (not 19 then 26).
+  return results.filter((entry) => halt.get(entry.train.number) !== false);
 }
 
 /** Test hook: clears the station cache. */

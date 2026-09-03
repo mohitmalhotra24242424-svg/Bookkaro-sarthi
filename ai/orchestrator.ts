@@ -341,11 +341,25 @@ async function finish(
   state: TurnState,
   intent: Intent,
   templateReply: string,
-  options: { factsFromTools?: boolean; usedFallbackNlu: boolean; sourceClass?: SourceClass } = { usedFallbackNlu: false },
+  options: { factsFromTools?: boolean; usedFallbackNlu: boolean; sourceClass?: SourceClass; allowAiNarration?: boolean } = { usedFallbackNlu: false },
 ): Promise<OrchestratorTurn> {
   let reply = templateReply;
 
-  if (options.factsFromTools === true) {
+  if (
+    options.allowAiNarration &&
+    !options.usedFallbackNlu &&
+    state.deps.ai.providerId !== 'deterministic-nlu'
+  ) {
+    const narrated = await maybeAiReply(state, reply);
+    const listed = state.context.lastSearchResults ?? [];
+    if (narrated && aiReplySafeForList(narrated, listed)) {
+      reply = narrated;
+      const winner = state.cards?.length === 1 ? state.cards[0]!.number : null;
+      if (winner && !new RegExp(`WINNER:\\s*${winner}\\b`, 'i').test(reply)) {
+        reply = `${reply}\nWINNER: ${winner}`;
+      }
+    }
+  } else if (options.factsFromTools === true) {
     const anyUsableData = state.toolResults.some((result) => result.ok && result.data !== null);
     const allUnavailable = state.toolResults.length > 0 && !anyUsableData;
     if (allUnavailable) {
@@ -398,6 +412,17 @@ async function finish(
 
 function nowIso(state: TurnState): string {
   return state.now.toISOString();
+}
+
+/** Invented 5-digit train numbers (not on the verified list) reject the AI prose. */
+function aiReplySafeForList(text: string, results: readonly TrainSearchResult[]): boolean {
+  if (results.length === 0) return true;
+  const listed = new Set(results.map((entry) => entry.train.number.replace(/^0+/, '') || entry.train.number));
+  for (const match of text.matchAll(/\b(\d{5})\b/g)) {
+    const n = match[1]!.replace(/^0+/, '') || match[1]!;
+    if (!listed.has(n) && !listed.has(match[1]!)) return false;
+  }
+  return true;
 }
 
 /** Optional AI phrasing of a DATA-BACKED reply. Falls back to the template on any failure. */
@@ -944,6 +969,13 @@ async function orchestrateSingleTurn(
   if (resultDetail) {
     if (resultDetail.trainNumber) rememberTrain(state, resultDetail.trainNumber);
     return finish(state, resultDetail.intent, resultDetail.reply, { usedFallbackNlu: understood.usedFallbackNlu });
+  }
+
+  // Superlative / list-intelligence: NVIDIA phrases the answer; regex only gates
+  // so GET_TIMETABLE / SEARCH_TRAIN misreads cannot dump the timetable or re-search.
+  {
+    const listIntel = await maybeAnswerListIntelligence(state, u, understood.usedFallbackNlu);
+    if (listIntel) return listIntel;
   }
 
   // §15: "rukko" — hold the flow, change nothing
@@ -3600,6 +3632,18 @@ async function answerListSuperlative(state: TurnState, usedFallback: boolean): P
   return finish(state, 'COMPARE_TRAINS', listSuperlativeReply(best, entry, results.length), {
     usedFallbackNlu: usedFallback,
     sourceClass: 'COMPARISON',
+    allowAiNarration: !usedFallback,
+  });
+}
+
+async function answerOpenListQuestion(state: TurnState, usedFallback: boolean): Promise<OrchestratorTurn> {
+  const results = state.context.lastSearchResults ?? [];
+  state.wasFollowUp = true;
+  const fallbackText = `Current list mein ${results.length} verified trains hain. Fastest, slowest, ya koi train number poochho — main isi list se jawab doonga.`;
+  return finish(state, 'COMPARE_TRAINS', fallbackText, {
+    usedFallbackNlu: usedFallback,
+    sourceClass: 'COMPARISON',
+    allowAiNarration: !usedFallback,
   });
 }
 
@@ -3633,10 +3677,11 @@ async function handleComparison(state: TurnState, u: AIUnderstandingResult, used
   }
   const firstNumber = u.slots.trainNumber;
   const secondNumber = u.slots.secondTrainNumber;
-  // Two named trains → pairwise. "Kaunsi fastest / less time" with no numbers →
-  // pick over the WHOLE current list (never silently compare #1 vs #2).
+  // Two named trains → pairwise. Superlative with no numbers → winner from the
+  // WHOLE current list. Any other list question → NVIDIA phrases from verified facts.
   if (!(firstNumber && secondNumber)) {
-    return answerListSuperlative(state, usedFallback);
+    if (detectComparisonRequest(state.message)) return answerListSuperlative(state, usedFallback);
+    return answerOpenListQuestion(state, usedFallback);
   }
   const a = results.find((entry) => entry.train.number === firstNumber);
   const b = results.find((entry) => entry.train.number === secondNumber);
