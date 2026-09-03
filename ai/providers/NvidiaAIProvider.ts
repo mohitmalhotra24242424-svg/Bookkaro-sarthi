@@ -219,6 +219,7 @@ export function nluSystemPrompt(intents: readonly string[], availableTools: read
     'STOPPAGE: "X Y pe rukti hai?", "does train X stop at Y?" → {intent:"GET_TIMETABLE", tool:"getTimetable", toolInput:{trainNumber:"X"}} and put Y in mentionedStations (or origin/destination if "A se B"). You never decide halt yourself.',
     'AVAILABILITY/FARE/BOOKING on ANY named train + from/to: set tool getAvailability or getFare (or getTimetable). The SERVER always fetches the live commercial schedule first for THAT train and refuses if either station is not a commercial stop (passing a city ≠ halt). Same rule for every train — no special cases. NEVER invent "seats nahi"/WL/AVAILABLE for a non-halt; that is stoppage, not inventory.',
     'SEARCH: searchTrains results are filtered by the SERVER — only trains whose live commercial schedule HALTS at both from and to are listed. A DLI (Delhi Jn) train is not an NDLS train (do not merge Delhi terminals). BCT and MMCT are the same Mumbai Central station; CSTM and CSMT are the same CSMT. Never invent extra trains.',
+    'LIST INTELLIGENCE: when searchResults are already on screen and the user asks fastest / sabse tez / sabse fast / fast train / kam time / less time / jaldi pahunch / pahunchaye / earliest / latest / longest / slowest / kaunsi tez — intent COMPARE_TRAINS, tool null. NEVER call searchTrains again. Do NOT fill origin/destination unless the user named a NEW "X se Y" route this turn. The server picks the winner from the CURRENT verified list and shows ONLY that train.',
     'LANG digits: accept Devanagari digits too (१२३ → 123) for train numbers and PNR.',
     'Intent hints: available/milegi/milega/WL questions → GET_AVAILABILITY; fare/price/paisa questions → GET_FARE;',
     'Wanting a class is BOOKING, not availability: "3A chahiye", "sleeper seat", "12014 mein 3A", "SL wali" → intent BOOK_TRAIN, fill trainNumber and/or travelClass.',
@@ -255,6 +256,7 @@ export function conversationNluHint(conversation: ConversationContext): string {
         .map((entry) => `${entry.train.number}:${(entry.train.travelClasses ?? []).join('/')}`)
         .join(',')}`,
     );
+    bits.push(`listOnScreen=${results.length} trains. Superlative (fastest/sabse tez/less time/kam time/jaldi pahunch) → intent COMPARE_TRAINS, tool null — NEVER searchTrains again.`);
   }
   if (bits.length === 0) return 'Conversation context: (new chat)';
   return `Conversation context (do not invent beyond this): ${bits.join('; ')}`;

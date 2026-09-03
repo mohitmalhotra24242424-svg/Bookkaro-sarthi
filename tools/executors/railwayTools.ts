@@ -171,7 +171,7 @@ async function loadStopsForTrain(
 ): Promise<readonly TrainStop[] | null> {
   const cached = readTimetableCache(trainNumber, now);
   if (cached) return cached;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     const tt = await router.timetable({ trainNumber });
     if (!tt.ok || isZeroResult(tt) || !tt.data) continue;
     const stops = Array.isArray(tt.data.stops) ? tt.data.stops : [];

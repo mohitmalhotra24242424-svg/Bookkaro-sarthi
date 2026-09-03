@@ -158,6 +158,8 @@ describe('universal engine: intelligent time-of-day filtering', () => {
     expect(detectComparisonRequest('sabse tez kaunsi hai')).not.toBeNull();
     expect(detectComparisonRequest('longest journey kaunsi hai')?.direction).toBe('max');
     expect(detectComparisonRequest('sabse pehle nikalti hai')?.metric).toBe('departure');
+    expect(detectComparisonRequest('Fast train kon si hai jo sabse less time mein pahunchaye')?.direction).toBe('min');
+    expect(detectComparisonRequest('sabse less time mein pahunchaye')?.metric).toBe('duration');
   });
 
   it('after-midnight (00:00–04:59) is MORNING/early-morning, NOT night — a 4:55am train is not a "raat" train', () => {
@@ -329,6 +331,40 @@ describe('universal engine: search-then-fastest follow-up', () => {
     const turn = await run(harness, context, 'kaunsi train sabse tez hai?');
     expect(turn.sourceClass).toBe('COMPARISON');
     expect(turn.reply).toMatch(/WINNER: 12014/);
+  });
+
+  it('after a search, "Fast train / less time / pahunchaye" answers ONLY the fastest from the CURRENT list (no re-search)', async () => {
+    const slow = train('18237', 'Chattisgarh Express', '03:43', '06:55', 192, ['SL', '3A']);
+    const mid = train('18103', 'Jalianwalabag Exp', '03:54', '06:30', 156, ['SL']);
+    const fastT = train('12014', 'Amritsar Shatabdi', '05:00', '06:55', 115, ['CC']);
+    const harness = createHarness({}, { searchResults: [slow, mid, fastT] });
+    let context = freshContext();
+    context = (await run(harness, context, 'Mujhe Amritsar se Ludhiana jaana hai')).context;
+    context = (await run(harness, context, 'Kal')).context;
+    expect(context.lastSearchResults?.map((entry) => entry.train.number)).toEqual(['18237', '18103', '12014']);
+    const searchesBefore = harness.countCapability('trainSearch');
+    const turn = await run(harness, context, 'Fast train kon si hai jo sabse less time mein pahunchaye?');
+    expect(turn.intent).toBe('COMPARE_TRAINS');
+    expect(turn.sourceClass).toBe('COMPARISON');
+    expect(turn.reply).toMatch(/WINNER: 12014/);
+    expect(turn.reply).not.toMatch(/3 trains mili/);
+    expect(turn.cards?.map((card) => card.number)).toEqual(['12014']);
+    expect(turn.executedTools).not.toContain('searchTrains');
+    expect(harness.countCapability('trainSearch')).toBe(searchesBefore);
+    expect(turn.context.lastSearchResults?.length).toBe(3);
+    expect(turn.context.selectedTrain).toBeNull();
+  });
+
+  it('NVIDIA SEARCH_TRAIN on a fastest follow-up still answers from the current list (no re-search)', async () => {
+    const { harness, context } = await searched();
+    const searchesBefore = harness.countCapability('trainSearch');
+    const turn = await run(harness, context, 'Fast train kon si hai jo sabse less time mein pahunchaye?', {
+      ai: new ScriptedAI(plan('SEARCH_TRAIN', { originQuery: 'Ludhiana', destinationQuery: 'Amritsar' })),
+    });
+    expect(turn.intent).toBe('COMPARE_TRAINS');
+    expect(turn.reply).toMatch(/WINNER: 12014/);
+    expect(turn.cards?.map((card) => card.number)).toEqual(['12014']);
+    expect(harness.countCapability('trainSearch')).toBe(searchesBefore);
   });
 });
 
@@ -793,6 +829,9 @@ describe('AI role + day-part clock contract (AI interprets, deterministic enforc
     expect(prompt).toMatch(/YOU ARE NOT A RAILWAY DATABASE/i);
     expect(prompt).toMatch(/no special cases/i);
     expect(prompt).toMatch(/passing a city/i);
+    expect(prompt).toMatch(/LIST INTELLIGENCE/i);
+    expect(prompt).toMatch(/NEVER call searchTrains again/i);
+    expect(prompt).toMatch(/COMPARE_TRAINS/i);
   });
 
   it('prompt states the authoritative day-part boundaries + the midnight rule (12 ke baad = morning, not night)', () => {

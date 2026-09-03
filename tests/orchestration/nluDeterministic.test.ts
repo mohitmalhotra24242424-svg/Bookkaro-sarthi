@@ -70,6 +70,12 @@ describe('deterministic NLU: intent detection', () => {
     expect(result.slots.secondTrainNumber).toBe('14542');
   });
 
+  it('fast / less time follow-up over a current list is COMPARE_TRAINS', async () => {
+    const withResults = { ...freshContext(), lastSearchResults: makeSearchResults() };
+    const result = await understand('Fast train kon si hai jo sabse less time mein pahunchaye?', withResults);
+    expect(result.intent).toBe('COMPARE_TRAINS');
+  });
+
   it('glossary questions detected as GENERAL_RAILWAY_QUERY', async () => {
     for (const message of ['CC kya hota hai?', 'SL kya hota hai?', 'RAC kya hota hai?', 'WL kya hota hai?']) {
       const result = await understand(message);

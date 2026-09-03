@@ -344,7 +344,7 @@ export function detectComparisonRequest(message: string): ComparisonRequest | nu
   if (/pehle\s+\w+\s+(nikal|chalu)|earliest departure|sabse pehle nikal|sabse pehle (nikalti|chalti)/.test(lower)) {
     return { metric: 'departure', direction: 'min', label: 'earliest departure (sabse pehle nikalti)' };
   }
-  if (/fastest|sabse tez|sabse fast|jaldi pahunchti|quickest|fast\b|kam time|shortest|sabse kam (samay|time|der)|tez|jaldi\b/.test(lower)) {
+  if (/fastest|sabse tez|sabse fast|jaldi pahunchti|quickest|fast\b|kam time|less time|sabse less|shortest|sabse kam (samay|time|der)|tez|jaldi\b/.test(lower)) {
     return { metric: 'duration', direction: 'min', label: 'shortest journey (sabse kam samay)' };
   }
   return null;
@@ -366,7 +366,7 @@ export function isBestAmbiguous(message: string, hasContextBasis: boolean): bool
   const lower = message.toLowerCase();
   const mentionsBest = /\bbest\b|\bbetter\b|\bbest option\b|kaunsi (better|best)|sabse badiya|\bbest option\b|kaunsi (better|best)|sabse badiya/.test(lower);
   if (!mentionsBest) return false;
-  const hasExplicitBasis = /fastest|sabse tez|jaldi|pehle|earliest|shortest|longest|kam time|fast\b|slow|dheere/.test(lower);
+  const hasExplicitBasis = /fastest|sabse tez|jaldi|pehle|earliest|shortest|longest|kam time|less time|fast\b|slow|dheere/.test(lower);
   return !hasExplicitBasis && !hasContextBasis;
 }
 

@@ -1397,6 +1397,12 @@ async function handleGlossary(state: TurnState, u: AIUnderstandingResult, usedFa
 // ── journey flow (BOOK_TRAIN / SEARCH_TRAIN) ────────────────────────────────
 
 async function handleJourney(state: TurnState, u: AIUnderstandingResult, usedFallback: boolean): Promise<OrchestratorTurn> {
+  // Belt-and-suspenders: a SEARCH_TRAIN/BOOK_TRAIN misread of "sabse fast" must not re-search.
+  if ((state.context.lastSearchResults?.length ?? 0) >= 2 && detectComparisonRequest(state.message) && !namesNewRouteThisTurn(state.message)) {
+    const typed = [...state.message.matchAll(/\b(\d{4,5})\b/g)].map((match) => match[1]!);
+    if (typed.length < 2) return answerListSuperlative(state, usedFallback);
+  }
+
   let context = state.context;
 
   // Time-of-day/window filter ("subah/morning", "4-6am"). The search often runs
@@ -3522,6 +3528,98 @@ function formatMinutes(minutes: string): string {
   return `${Math.floor(total / 60)}h ${total % 60}m`;
 }
 
+/** True when THIS message names a new A→B route (not a superlative over the current list). */
+function namesNewRouteThisTurn(message: string): boolean {
+  return (
+    /(?:[\u0900-\u097F]|[A-Za-z])[^\s,!.?;]*\s+(?:se|from)\s+(?:[\u0900-\u097F]|[A-Za-z])/i.test(message) ||
+    /\bfrom\s+\S+\s+(?:to|tak)\s+\S+/i.test(message)
+  );
+}
+
+function listSuperlativeReply(
+  best: { number: string; name: string | null; value: number; metric: string; direction: string; label: string },
+  entry: TrainSearchResult,
+  listSize: number,
+): string {
+  const name = best.name ? ` — ${best.name}` : '';
+  const shown = best.metric === 'duration' ? formatDuration(best.value) : formatClock(best.value);
+  const metricWord =
+    best.metric === 'duration'
+      ? best.direction === 'max'
+        ? 'duration (sabse zyada samay)'
+        : 'duration (sabse kam time)'
+      : best.metric === 'arrival'
+        ? 'arrival'
+        : 'departure';
+  const dep = entry.departureTime ?? '?';
+  const arr = entry.arrivalTime ?? '?';
+  return [
+    `Current list ki ${listSize} trains mein se ${best.label}: ${best.number}${name}, ${metricWord} ${shown} (dep ${dep} → arr ${arr}).`,
+    `WINNER: ${best.number}`,
+    'Sirf yahi train dikha raha hoon — class tap karke book kar sakte ho.',
+  ].join('\n');
+}
+
+async function answerListSuperlative(state: TurnState, usedFallback: boolean): Promise<OrchestratorTurn> {
+  const results = state.context.lastSearchResults ?? [];
+  const request = detectComparisonRequest(state.message);
+  if (!request) {
+    return finish(
+      state,
+      'COMPARE_TRAINS',
+      'Kis criteria par compare karun — sabse tez, sabse pehle pahunch, ya sabse lambi? Current list se nikal doonga.',
+      { usedFallbackNlu: usedFallback, sourceClass: 'COMPARISON' },
+    );
+  }
+  const best = pickBestByMetric(results, request);
+  if (!best) {
+    return finish(
+      state,
+      'COMPARE_TRAINS',
+      `Current list mein is metric ke liye kam se kam 2 trains ka verified ${request.metric} nahi mila — main andaza nahi lagata.`,
+      { usedFallbackNlu: usedFallback, sourceClass: 'COMPARISON' },
+    );
+  }
+  const entry = results.find((row) => row.train.number === best.number);
+  if (!entry) {
+    return finish(
+      state,
+      'COMPARE_TRAINS',
+      'Winner current list mein nahi mila — main andaza nahi lagata.',
+      { usedFallbackNlu: usedFallback, sourceClass: 'COMPARISON' },
+    );
+  }
+  state.cards = [toTrainCard(entry)];
+  state.wasFollowUp = true;
+  rememberTrain(state, best.number);
+  state.context = updateConversationMeta(
+    state.context,
+    { bookingStage: 'SEARCH_RESULTS', lastAskedField: 'selectedTrain', pendingQuestion: 'Kaunsi train leni hai?' },
+    nowIso(state),
+  );
+  return finish(state, 'COMPARE_TRAINS', listSuperlativeReply(best, entry, results.length), {
+    usedFallbackNlu: usedFallback,
+    sourceClass: 'COMPARISON',
+  });
+}
+
+async function maybeAnswerListIntelligence(
+  state: TurnState,
+  _u: AIUnderstandingResult,
+  usedFallback: boolean,
+): Promise<OrchestratorTurn | null> {
+  const results = state.context.lastSearchResults ?? [];
+  if (results.length < 2) return null;
+  if (isPassengerField(state.context.lastAskedField)) return null;
+  if (isAwaitingBookingConfirmation(state.context)) return null;
+  if (namesNewRouteThisTurn(state.message)) return null;
+  const typed = [...state.message.matchAll(/\b(\d{4,5})\b/g)].map((match) => match[1]!);
+  if (typed.length >= 2) return null;
+  if (typed.length === 1 && listedTrain(results, typed[0])) return null;
+  if (!detectComparisonRequest(state.message)) return null;
+  return answerListSuperlative(state, usedFallback);
+}
+
 async function handleComparison(state: TurnState, u: AIUnderstandingResult, usedFallback: boolean): Promise<OrchestratorTurn> {
   await maybePauseForInterruption(state, 'COMPARE_TRAINS');
   const results = state.context.lastSearchResults ?? [];
@@ -3535,15 +3633,13 @@ async function handleComparison(state: TurnState, u: AIUnderstandingResult, used
   }
   const firstNumber = u.slots.trainNumber;
   const secondNumber = u.slots.secondTrainNumber;
-  let a: TrainSearchResult | undefined;
-  let b: TrainSearchResult | undefined;
-  if (firstNumber && secondNumber) {
-    a = results.find((entry) => entry.train.number === firstNumber);
-    b = results.find((entry) => entry.train.number === secondNumber);
-  } else {
-    a = resolveResultReference('1', results) ?? undefined;
-    b = resolveResultReference('2', results) ?? undefined;
+  // Two named trains → pairwise. "Kaunsi fastest / less time" with no numbers →
+  // pick over the WHOLE current list (never silently compare #1 vs #2).
+  if (!(firstNumber && secondNumber)) {
+    return answerListSuperlative(state, usedFallback);
   }
+  const a = results.find((entry) => entry.train.number === firstNumber);
+  const b = results.find((entry) => entry.train.number === secondNumber);
   if (!a || !b) {
     return finish(
       state,

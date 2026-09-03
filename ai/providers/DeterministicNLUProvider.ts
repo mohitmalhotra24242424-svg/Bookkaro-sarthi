@@ -401,6 +401,7 @@ const GENERIC_WORDS = new Set([
   // day-part + colloquial traffic words — never station candidates
   'morning', 'subah', 'subha', 'savere', 'dopahar', 'afternoon', 'shaam', 'evening', 'raat', 'night',
   'btao', 'dkhao', 'bata', 'dikha', 'btado', 'dikhado', 'pahunch', 'pahunchi', 'pahunchti', 'pahuch', 'pahuchi', 'pahuchti',
+  'fast', 'fastest', 'tez', 'less', 'quickest', 'slowest', 'shortest', 'longest',
   'arrival', 'arrive', 'arrives', 'baje', 'bje', 'baja', 'destinations?',
 ]);
 
@@ -647,7 +648,7 @@ export class DeterministicNLUProvider implements AIProvider {
     } else if (/\bwallet\b|\bbalance\b/i.test(lower)) {
       intent = 'VIEW_WALLET';
       confidence = 0.9;
-    } else if ((slots.trainNumber && slots.secondTrainNumber) || (/\b(better|compare|vs|versus|kaunsi|konsi)\b/i.test(lower) && slots.trainNumber && slots.secondTrainNumber) || (/\b(fastest|sabse tez|jaldi pahunch|sabse jaldi|pehle\s+[a-z]+\s+pahunch|earliest\s+(arrival|departure)|shortest|longest|sabse\s+kam\s+samay|sabse\s+zyada\s+(samay|time|der)|zyada\s+time\s+lagat|sabse\s+dheere|slowest|latest\s+departure)\w*/i.test(lower) && (input.conversation.lastSearchResults?.length ?? 0) >= 2)) {
+    } else if ((slots.trainNumber && slots.secondTrainNumber) || (/\b(better|compare|vs|versus|kaunsi|konsi|kon si)\b/i.test(lower) && slots.trainNumber && slots.secondTrainNumber) || (/\b(fastest|sabse tez|sabse fast|\bfast\b|jaldi pahunch|sabse jaldi|pehle\s+[a-z]+\s+pahunch|earliest\s+(arrival|departure)|shortest|longest|sabse\s+kam\s+(samay|time)|less\s+time|kam\s+time|sabse\s+less|sabse\s+zyada\s+(samay|time|der)|zyada\s+time\s+lagat|sabse\s+dheere|slowest|latest\s+departure)\w*/i.test(lower) && (input.conversation.lastSearchResults?.length ?? 0) >= 2)) {
       intent = 'COMPARE_TRAINS';
       confidence = 0.9;
     } else if (isGlossaryQuestion(lower) && !slots.trainNumber && !/station code|code kya|ka code/i.test(lower)) {
