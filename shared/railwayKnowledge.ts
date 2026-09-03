@@ -55,8 +55,46 @@ export const RAILWAY_GLOSSARY: readonly GlossaryEntry[] = [
   },
   {
     term: '2S',
-    aliases: ['2s', 'second sitting'],
+    aliases: ['2s', 'second sitting', 'second seating'],
     answer: '2S matlab Second Sitting — reserved non-AC seat (berth nahi). Short daytime journeys ke liye.',
+  },
+  {
+    term: 'FC',
+    aliases: ['fc', 'first class', 'first class non ac'],
+    answer:
+      'FC matlab First Class (non-AC) — purani first-class cabin/coupe, AC nahi. 1A se alag hai: 1A First AC hai, FC non-AC first class.',
+  },
+  {
+    term: 'EA',
+    aliases: ['ea', 'anubhuti', 'anubhuti class', 'executive anubhuti'],
+    answer:
+      'EA matlab Anubhuti / Executive Anubhuti — premium AC chair-car (Shatabdi/tejas type), EC se upar, extra comfort aur amenities.',
+  },
+  {
+    term: 'EV',
+    aliases: ['ev', 'vistadome ac', 'ac vistadome'],
+    answer: 'EV matlab Vistadome AC — glass-roof AC tourist coach, scenic routes ke liye viewing seats.',
+  },
+  {
+    term: 'VS',
+    aliases: ['vs', 'vistadome', 'vistadome non ac'],
+    answer: 'VS matlab Vistadome (non-AC) — glass-roof tourist coach without AC.',
+  },
+  {
+    term: 'VC',
+    aliases: ['vc', 'vistadome chair', 'vistadome chair car'],
+    answer: 'VC matlab Vistadome Chair Car — scenic chair-car with large viewing windows.',
+  },
+  {
+    term: 'UR',
+    aliases: ['ur', 'unreserved', 'general class', 'general coach'],
+    answer:
+      'UR matlab Unreserved / general coach — seat reserved nahi hoti, ticket platform/general se milti hai. GN quota (reserved general quota) se alag hai.',
+  },
+  {
+    term: 'CNF',
+    aliases: ['cnf', 'confirmed'],
+    answer: 'CNF matlab Confirmed — berth/seat chart pe aapke naam par assign ho chuki hai.',
   },
   {
     term: 'RAC',
@@ -130,7 +168,7 @@ export function composeKnowledgeAnswer(query: string | null): ComposedKnowledge 
 
   // listing question: coach/class types
   if (/coach\s*types?|class\s*types?|kaunse coach|classes kaunse/.test(text)) {
-    const classTerms = ['1A', '2A', '3A', 'SL', 'CC', 'EC', '2S', '3E'];
+    const classTerms = ['1A', '2A', '3A', '3E', 'SL', 'CC', 'EC', 'EA', 'EV', 'FC', '2S', 'VS', 'VC', 'UR'];
     const parts: string[] = [];
     const matched: string[] = [];
     for (const term of classTerms) {
@@ -160,5 +198,68 @@ export function composeKnowledgeAnswer(query: string | null): ComposedKnowledge 
 
   const single = findGlossaryAnswer(query);
   if (single) return { answer: single.answer, matchedTerms: [single.term] };
+
+  // Natural-language: "CC kya hota hai?", "EA matlab kya", "anubhuti class kya hai"
+  const hits = glossaryMentionsIn(text);
+  if (hits.length === 1) {
+    const only = hits[0]!;
+    return { answer: only.answer, matchedTerms: [only.term] };
+  }
+  if (hits.length > 1 && /kya hot|matlab|meaning|what is|antar|fark|difference/.test(text)) {
+    return {
+      answer: hits.map((entry) => `${entry.term}: ${entry.answer}`).join('\n\n'),
+      matchedTerms: hits.map((entry) => entry.term),
+    };
+  }
   return null;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Find glossary entries mentioned inside a sentence (not only exact "CC"). */
+export function glossaryMentionsIn(query: string): GlossaryEntry[] {
+  const text = query.toLowerCase();
+  const scored: { entry: GlossaryEntry; len: number }[] = [];
+  for (const entry of RAILWAY_GLOSSARY) {
+    let best = 0;
+    for (const needle of [entry.term, ...entry.aliases]) {
+      const re = new RegExp(`(?:^|[^a-z0-9])${escapeRegExp(needle)}(?:$|[^a-z0-9])`, 'i');
+      if (re.test(text) && needle.length > best) best = needle.length;
+    }
+    if (best > 0) scored.push({ entry, len: best });
+  }
+  scored.sort((a, b) => b.len - a.len);
+  if (scored.length === 0) return [];
+  const longest = scored[0]!.len;
+  const top = scored.filter((row) => row.len === longest);
+  if (top.length === 1) return [top[0]!.entry];
+  return scored.map((row) => row.entry);
+}
+
+/** "CC kya hota hai" / "EA matlab" — vocabulary, not live seats. */
+export function isConceptMeaningQuestion(message: string): boolean {
+  if (/\b\d{5}\b/.test(message) || /\b\d{10}\b/.test(message)) return false;
+  if (
+    /\b(available|availability|milegi|milega|waitlist|fare|kiraya|price|live status|running status)\b/i.test(
+      message,
+    )
+  ) {
+    return false;
+  }
+  if (/\b(kaha hai|kahan hai|kitni late|kitna delay)\b/i.test(message)) return false;
+  if (
+    /\b(kya hot[ai]|kya hote hain|matlab|meaning|what is|kaunsi class|kaunse class|class types?|coach types?|difference|antar|fark)\b/i.test(
+      message,
+    )
+  ) {
+    return true;
+  }
+  return (
+    /\b(kya hai)\b/i.test(message) &&
+    /\b(cc|ec|ea|ev|fc|sl|1a|2a|3a|3e|2s|rac|wl|gn|tq|tatkal|pnr|chart|cnf|ur|vs|vc|sleeper|chair car|anubhuti|vistadome|quota)\b/i.test(
+      message,
+    )
+  );
 }

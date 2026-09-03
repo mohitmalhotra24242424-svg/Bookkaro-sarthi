@@ -179,7 +179,7 @@ const ORDINALS: Readonly<Record<string, number>> = {
 };
 
 const GLOSSARY_TOKENS = [
-  'cc', 'ec', 'sl', '1a', '2a', '3a', '3e', '2s', 'rac', 'wl', 'gn', 'tq', 'tatkal', 'chart', 'pnr', 'speed', 'cnf',
+  'cc', 'ec', 'ea', 'ev', 'fc', 'vs', 'vc', 'ur', 'sl', '1a', '2a', '3a', '3e', '2s', 'rac', 'wl', 'gn', 'tq', 'tatkal', 'chart', 'pnr', 'speed', 'cnf',
 ];
 
 function emptySlots(): AIUnderstandingResult['slots'] {
@@ -439,6 +439,10 @@ function extractGlossaryTerm(text: string): string | null {
   if (/\btatkal\b/.test(lower)) return 'TQ';
   if (/\bwaiting list\b/.test(lower)) return 'WL';
   if (/\bchair car\b/.test(lower)) return 'CC';
+  if (/\banubhuti\b/.test(lower)) return 'EA';
+  if (/\bvistadome\b/.test(lower) && /\bac\b/.test(lower)) return 'EV';
+  if (/\bvistadome\b/.test(lower)) return 'VS';
+  if (/\bunreserved\b|\bgeneral class\b/.test(lower)) return 'UR';
   return null;
 }
 

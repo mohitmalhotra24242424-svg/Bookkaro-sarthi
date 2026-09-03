@@ -55,7 +55,7 @@ import type {
   TrainSearchResult,
   TravelClassCode,
 } from '../shared/index.js';
-import { composeKnowledgeAnswer, findGlossaryAnswer } from '../shared/railwayKnowledge.js';
+import { composeKnowledgeAnswer, findGlossaryAnswer, isConceptMeaningQuestion } from '../shared/railwayKnowledge.js';
 import {
   classifyUniversalQuerySource,
   detectComparisonRequest,
@@ -1252,6 +1252,12 @@ async function orchestrateSingleTurn(
         return handleSlotFiller(state, u, filler, understood.usedFallbackNlu, userMessage);
       }
     }
+  }
+
+  // Class/status vocabulary ("CC kya hota hai?", "EA matlab kya") is knowledge —
+  // never let the model steal it into getAvailability / live tools.
+  if (isConceptMeaningQuestion(userMessage)) {
+    return handleGlossary(state, { ...u, intent: 'GENERAL_RAILWAY_QUERY' }, understood.usedFallbackNlu);
   }
 
   // ── AI TOOL AGENT (primary autonomous path) ────────────────────────────────

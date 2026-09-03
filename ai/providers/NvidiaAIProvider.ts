@@ -262,6 +262,7 @@ export function nluSystemPrompt(intents: readonly string[], availableTools: read
     'Spoken classes: sleeper=SL, chair car=CC, 3AC/third ac/3 ac/teen ac=3A, 2AC/second ac=2A, 1AC/first ac=1A, 3E=3E, 2S=second sitting, EC=executive chair.',
     'While search results are showing, a bare train number ("12014") or ordinal ("pehli wali") → BOOK_TRAIN + trainNumber/resultReference.',
     'Do NOT use GET_AVAILABILITY unless the user asks available/milegi/waitlist. "seat chahiye" means they want to book that class.',
+    'CLASS MEANING: "CC/SL/3A/2A/1A/EC/EA/FC/2S/3E/EV kya hota hai", "matlab kya", "what is sleeper" → intent GENERAL_RAILWAY_QUERY, glossaryTerm=that code, tool getRailwayKnowledge (or null). This is vocabulary, NOT seats. NEVER GET_AVAILABILITY for a meaning question.',
     '"kal"=tomorrow "parso"=day-after-tomorrow "aaj"=today only when the user says so;',
     'a bare short answer (just a date/count/class/ordinal like "pehli wali") gets intent UNKNOWN with the entity filled — the server continues the pending question.',
     'NEVER return UNKNOWN for a railway-related message if a closer intent exists (BOOK_TRAIN, LIVE_TRAIN_STATUS, GET_FARE, GET_AVAILABILITY, GET_TIMETABLE, CHECK_PNR, HELP).',
