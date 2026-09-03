@@ -252,3 +252,76 @@ describe('API-first, official web only after provider fallout', () => {
     expect(turn.executedTools).not.toContain('getOfficialWebFallback');
   });
 });
+
+describe('official StaticContents body, not enquiry chrome', () => {
+  const JSP_CHROME = `<html><body>Welcome to Indian Railway Passenger Reservation Enquiry Toggle navigation
+    <script>$(function(){ $.ajax({ url: window.location.origin + '/StaticContents/' + 'tatkal_Scheme.html' }); });</script>
+    Please help Indian railways and government of India in moving towards a digitized and cashless economy. Eradicate black money.
+    </body></html>`;
+  const TATKAL_BODY = `<html><body><h1>Tatkal Scheme</h1><p>The Tatkal Charges have been fixed as a percentage of fare.
+    Tatkal booking opens at 10 AM for AC Classes and 11 AM for NON-AC Classes on one day in advance actual date of journey.
+    Agents are restricted from AC Tatkal booking 10:00 hrs to 10:10 hrs.</p></body></html>`;
+
+  it('follows StaticContents fragment hidden behind the JSP shell', async () => {
+    const calls: string[] = [];
+    const impl = (async (url: string) => {
+      calls.push(String(url));
+      const html = String(url).includes('/StaticContents/') ? TATKAL_BODY : JSP_CHROME;
+      return { ok: true, status: 200, url: String(url), text: async () => html };
+    }) as never;
+    const executor = createKnowledgeToolExecutor({ fetchImpl: impl }).getRailwayKnowledge!;
+    const result = await executor({
+      query: 'Tatkal booking kab khulti hai?',
+      url: 'https://www.indianrail.gov.in/enquiry/StaticPages/StaticEnquiry.jsp?StaticPage=tatkal_Scheme.html&locale=en',
+    }, ctxStub);
+    expect(result.ok).toBe(true);
+    expect(calls[0]).toContain('StaticEnquiry.jsp');
+    expect(calls.some((url) => url.includes('/StaticContents/tatkal_Scheme.html'))).toBe(true);
+    const data = result.data as { retrievedText: string; sourceUrl: string };
+    expect(data.retrievedText).toMatch(/Tatkal booking opens at 10 AM/i);
+    expect(data.retrievedText).not.toMatch(/Toggle navigation|Eradicate black money/i);
+    expect(data.sourceUrl).toContain('StaticContents/tatkal_Scheme.html');
+  });
+
+  it('chrome-only official shell is not treated as an answer', async () => {
+    const impl = (async (url: string) => ({
+      ok: true, status: 200, url: String(url),
+      text: async () => JSP_CHROME,
+    })) as never;
+    const executor = createKnowledgeToolExecutor({ fetchImpl: impl }).getRailwayKnowledge!;
+    const result = await executor({ query: 'Tatkal booking kab khulti hai?' }, ctxStub);
+    expect(result.ok).toBe(false);
+    expect(result.error?.message).toBe(HONEST_UNAVAILABLE_MESSAGE);
+  });
+
+  it('timing question excerpts opening hours, not only the charges table', async () => {
+    const long = `<html><body>${'Tatkal Charges table '.repeat(80)} Tatkal booking opens at 10 AM for AC Classes and 11 AM for NON-AC Classes on one day in advance.</body></html>`;
+    const impl = (async (url: string) => ({
+      ok: true, status: 200, url: String(url), text: async () => long,
+    })) as never;
+    const executor = createKnowledgeToolExecutor({ fetchImpl: impl }).getRailwayKnowledge!;
+    const result = await executor({ query: 'Tatkal booking kab khulti hai?' }, ctxStub);
+    expect(result.ok).toBe(true);
+    const text = (result.data as { retrievedText: string }).retrievedText;
+    expect(text).toMatch(/10 AM for AC Classes/i);
+  });
+
+  it('API timeout + chrome-only web → fetch-slow, never nav dump', async () => {
+    const harness = createHarness(
+      { liveStatus: providerFailure('TIMEOUT', 'timed out', { source: 'RAILCORE' }) },
+      {
+        knowledgeFetch: async (url: string) => ({
+          ok: true,
+          status: 200,
+          url,
+          text: async () => JSP_CHROME,
+        }),
+      },
+    );
+    const turn = await run(harness, freshContext(), '12014 ka live status batao');
+    expect(turn.executedTools).toContain('getOfficialWebFallback');
+    expect(turn.reply).toMatch(/thoda time zyada lag raha/i);
+    expect(turn.reply).not.toMatch(/Toggle navigation|Eradicate black money|Passenger Reservation Enquiry/i);
+  });
+});
+

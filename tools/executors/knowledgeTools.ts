@@ -34,7 +34,7 @@ export const RAILWAY_WEB_ALLOWLIST: readonly string[] = [
 ];
 
 const KNOWLEDGE_FETCH_TIMEOUT_MS = 6_000;
-const MAX_RETRIEVED_TEXT_CHARS = 1_200;
+const MAX_RETRIEVED_TEXT_CHARS = 1_600;
 
 /**
  * OFFICIAL RAILWAY KNOWLEDGE PAGES (Step 9 official-source configuration).
@@ -53,14 +53,26 @@ export const OFFICIAL_RAILWAY_PAGES: readonly OfficialRailwayPage[] = [
   {
     key: 'tatkal',
     title: 'Tatkal Scheme — Indian Railways (official)',
-    url: 'https://www.indianrail.gov.in/enquiry/StaticPages/StaticEnquiry.jsp?StaticPage=tatkal_Scheme.html&locale=en',
+    url: 'https://www.indianrail.gov.in/StaticContents/tatkal_Scheme.html',
     matches: /tatkal|premium tatkal/i,
   },
   {
     key: 'quota-codes',
     title: 'Quota Codes — Indian Railways (official)',
-    url: 'https://www.indianrail.gov.in/enquiry/StaticPages/StaticEnquiry.jsp?StaticPage=hquota_Code.html&locale=en',
+    url: 'https://www.indianrail.gov.in/StaticContents/quota_Code.html',
     matches: /quota code|quota kya|kaunse quota|\bgn quota\b|quota list/i,
+  },
+  {
+    key: 'refund',
+    title: 'Refund Rules — Indian Railways (official)',
+    url: 'https://www.indianrail.gov.in/StaticContents/refund_Rules.html',
+    matches: /refund|wapsi|cancellation charge/i,
+  },
+  {
+    key: 'luggage',
+    title: 'Luggage Rules — Indian Railways (official)',
+    url: 'https://www.indianrail.gov.in/StaticContents/luggage_Rule.html',
+    matches: /luggage|samaan|baggage/i,
   },
   {
     key: 'pnr-legend',
@@ -76,9 +88,9 @@ export const OFFICIAL_RAILWAY_PAGES: readonly OfficialRailwayPage[] = [
   },
   {
     key: 'rules',
-    title: 'Reservation Rules / Conditions — Indian Railways (official)',
-    url: 'https://www.indianrail.gov.in/enquiry/StaticPages/StaticEnquiry.jsp?StaticPage=conc_Rules.html',
-    matches: /refund|niyam|rules?|luggage|concession|reservation rules|conditions/i,
+    title: 'Concession / Reservation Rules — Indian Railways (official)',
+    url: 'https://www.indianrail.gov.in/StaticContents/Rules/ConcessionRules/conc_Rules.html',
+    matches: /concession|niyam|rules?|conditions|reservation rules/i,
   },
 ];
 
@@ -87,13 +99,13 @@ export const API_FALLBACK_PAGES: readonly OfficialRailwayPage[] = [
   {
     key: 'ntes',
     title: 'National Train Enquiry — Indian Railways (official)',
-    url: 'https://www.indianrail.gov.in/enquiry/NTES/Ntess.html',
+    url: 'https://enquiry.indianrail.gov.in/ntes/',
     matches: /\blive\b|kaha hai|kahan hai|running|delay|late|train status|ntes/i,
   },
   {
     key: 'tbis',
     title: 'Trains between stations — Indian Railways (official)',
-    url: 'https://www.indianrail.gov.in/enquiry/TBIS/TrainBetweenSearch.html',
+    url: 'https://www.indianrail.gov.in/enquiry/TBIS/TrainBetweenImportantStations.html',
     matches: /\btrains?\b|gaadiyan|se .* (jaana|jana)|from .+ to /i,
   },
   {
@@ -143,19 +155,102 @@ function isAllowlisted(hostname: string): boolean {
   });
 }
 
-function sanitizeHtml(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
+function decodeEntities(text: string): string {
+  return text
+    .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, MAX_RETRIEVED_TEXT_CHARS);
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => {
+      const code = Number.parseInt(hex, 16);
+      return Number.isFinite(code) ? String.fromCharCode(code) : ' ';
+    })
+    .replace(/&#(\d+);/g, (_, n) => {
+      const code = Number(n);
+      return Number.isFinite(code) ? String.fromCharCode(code) : ' ';
+    });
 }
+
+function sanitizeHtml(html: string): string {
+  return decodeEntities(
+    html
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+      .replace(/<[^>]+>/g, ' '),
+  )
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Official enquiry shells are JS apps — nav chrome is not an answer. */
+function stripEnquiryChrome(text: string): string {
+  return text
+    .replace(/Welcome to Indian Railway Passenger Reservation Enquiry/gi, ' ')
+    .replace(/Toggle navigation/gi, ' ')
+    .replace(/Please help Indian railways[\s\S]{0,220}?black money\.?/gi, ' ')
+    .replace(/Eradicate black money\.?/gi, ' ')
+    .replace(
+      /Indian Railways Enquiry PNR Enquiry Reserved Train Between Stations Seat Availability Fare Enquiry Reserved Train Schedule Refund Enquiry/gi,
+      ' ',
+    )
+    .replace(/-->/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isChromeOnly(text: string): boolean {
+  if (text.length < 40) return true;
+  const stillChrome = /Toggle navigation|Passenger Reservation Enquiry|Eradicate black money/i.test(text);
+  if (!stillChrome) return false;
+  return !/Tatkal Scheme|Tatkal Charges|Quotas in Indian Railways|Revised Refund Rules|Concession Rules|Rules For Luggage|booking opens/i.test(
+    text,
+  );
+}
+
+function usefulTextFromHtml(html: string): string {
+  const text = stripEnquiryChrome(sanitizeHtml(html));
+  if (isChromeOnly(text)) return '';
+  return text;
+}
+
+function staticContentsUrlFromHtml(html: string, currentUrl: string): string | null {
+  const match =
+    html.match(/StaticContents\/'\s*\+\s*'([^']+\.html)'/i) ||
+    html.match(/['"]\/StaticContents\/([^'"]+\.html)['"]/i) ||
+    html.match(/StaticContents\/([A-Za-z0-9_./-]+\.html)/i);
+  if (!match?.[1]) return null;
+  try {
+    const next = new URL(`/StaticContents/${match[1]}`, 'https://www.indianrail.gov.in/');
+    if (!isAllowlisted(next.hostname)) return null;
+    if (next.href === currentUrl || next.pathname === new URL(currentUrl).pathname) return null;
+    return next.href;
+  } catch {
+    return null;
+  }
+}
+
+function preferRelevantPassage(text: string, query: string): string {
+  const limit = MAX_RETRIEVED_TEXT_CHARS;
+  if (text.length <= limit) return text;
+  const q = query.toLowerCase();
+  const patterns: RegExp[] = [];
+  if (/khult|open|timing|kab\b/.test(q)) patterns.push(/tatkal booking opens[\s\S]{0,420}/i);
+  if (/refund|wapsi/.test(q)) patterns.push(/revised refund rules[\s\S]{0,420}/i);
+  if (/luggage|samaan/.test(q)) patterns.push(/rules for luggage[\s\S]{0,420}/i);
+  if (/concession/.test(q)) patterns.push(/concession is admissible[\s\S]{0,420}/i);
+  for (const pattern of patterns) {
+    const found = text.match(pattern);
+    if (found?.index != null) {
+      const start = Math.max(0, found.index - 40);
+      return text.slice(start, start + limit).trim();
+    }
+  }
+  return text.slice(0, limit);
+}
+
 
 /** Spec-mandated honest-unavailable message for official-source failures. */
 export const HONEST_UNAVAILABLE_MESSAGE =
@@ -185,6 +280,50 @@ export function createKnowledgeToolExecutor(options: KnowledgeToolOptions = {}):
     options.fetchImpl ??
     ((globalThis.fetch as unknown) as KnowledgeFetch);
   const now = options.now ?? (() => new Date());
+
+  async function retrieveOfficial(
+    target: string,
+    query: string,
+  ): Promise<{ text: string; url: string; hostname: string } | null> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), KNOWLEDGE_FETCH_TIMEOUT_MS);
+    try {
+      const first = await fetchImpl(target, {
+        headers: { accept: 'text/html' },
+        signal: controller.signal,
+        redirect: 'error',
+      });
+      const firstUrl = first.url || target;
+      const hostname = new URL(firstUrl).hostname;
+      if (!first.ok || !isAllowlisted(hostname)) return null;
+      const html = await first.text();
+      let text = usefulTextFromHtml(html);
+      let finalUrl = firstUrl;
+      const nested = staticContentsUrlFromHtml(html, firstUrl);
+      if (nested && text.length < 80) {
+        const second = await fetchImpl(nested, {
+          headers: { accept: 'text/html' },
+          signal: controller.signal,
+          redirect: 'error',
+        });
+        const secondUrl = second.url || nested;
+        const host2 = new URL(secondUrl).hostname;
+        if (second.ok && isAllowlisted(host2)) {
+          const nestedText = usefulTextFromHtml(await second.text());
+          if (nestedText.length >= 40) {
+            text = nestedText;
+            finalUrl = secondUrl;
+          }
+        }
+      }
+      if (text.length < 40) return null;
+      return { text: preferRelevantPassage(text, query), url: finalUrl, hostname: new URL(finalUrl).hostname };
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   return {
     getRailwayKnowledge: async (input, ctx): Promise<ToolResult> => {
@@ -264,46 +403,27 @@ export function createKnowledgeToolExecutor(options: KnowledgeToolOptions = {}):
           target = `https://${bare}/`;
         }
       }
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), KNOWLEDGE_FETCH_TIMEOUT_MS);
-      try {
-        const response = await fetchImpl(target, {
-          headers: { accept: 'text/html' },
-          signal: controller.signal,
-          redirect: 'error', // never follow redirects to unlisted domains
-        });
-        const finalHostname = response.url ? new URL(response.url).hostname : new URL(target).hostname;
-        if (!response.ok || !isAllowlisted(finalHostname)) {
-          return toolUnavailable(call, 'NO_DATA', HONEST_UNAVAILABLE_MESSAGE);
-        }
-        const text = sanitizeHtml(await response.text());
-        if (text.length < 40) {
-          return toolUnavailable(call, 'NO_DATA', HONEST_UNAVAILABLE_MESSAGE);
-        }
-        return {
-          callId: call.id,
-          tool: call.tool,
-          ok: true,
-          data: {
-            source: 'web',
-            sourceTitle: officialPage ? officialPage.title : finalHostname,
-            sourceUrl: response.url || target,
-            title: officialPage ? officialPage.title : finalHostname,
-            url: response.url || target,
-            retrievedText: text,
-            retrievedAt: now().toISOString(),
-            timestamp: now().toISOString(),
-          },
-          unavailableReason: null,
-          error: null,
-          executedBy: 'SERVER',
-          provider: 'web' as never,
-        };
-      } catch {
-        return toolUnavailable(call, 'NO_DATA', HONEST_UNAVAILABLE_MESSAGE);
-      } finally {
-        clearTimeout(timer);
-      }
+      const retrieved = await retrieveOfficial(target, query);
+      if (!retrieved) return toolUnavailable(call, 'NO_DATA', HONEST_UNAVAILABLE_MESSAGE);
+      return {
+        callId: call.id,
+        tool: call.tool,
+        ok: true,
+        data: {
+          source: 'web',
+          sourceTitle: officialPage ? officialPage.title : retrieved.hostname,
+          sourceUrl: retrieved.url,
+          title: officialPage ? officialPage.title : retrieved.hostname,
+          url: retrieved.url,
+          retrievedText: retrieved.text,
+          retrievedAt: now().toISOString(),
+          timestamp: now().toISOString(),
+        },
+        unavailableReason: null,
+        error: null,
+        executedBy: 'SERVER',
+        provider: 'web' as never,
+      };
     },
 
     /** SERVER-ONLY: official allowlisted web after a railway API timeout/unavailable. */
@@ -313,46 +433,27 @@ export function createKnowledgeToolExecutor(options: KnowledgeToolOptions = {}):
       if (query.length < 3) return toolFailure(call, 'INVALID_INPUT', 'query is required.');
       const page = detectFallbackPage(query);
       const target = page ? page.url : 'https://www.indianrail.gov.in/';
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), KNOWLEDGE_FETCH_TIMEOUT_MS);
-      try {
-        const response = await fetchImpl(target, {
-          headers: { accept: 'text/html' },
-          signal: controller.signal,
-          redirect: 'error',
-        });
-        const finalHostname = response.url ? new URL(response.url).hostname : new URL(target).hostname;
-        if (!response.ok || !isAllowlisted(finalHostname)) {
-          return toolUnavailable(call, 'NO_DATA', HONEST_UNAVAILABLE_MESSAGE);
-        }
-        const text = sanitizeHtml(await response.text());
-        if (text.length < 40) {
-          return toolUnavailable(call, 'NO_DATA', HONEST_UNAVAILABLE_MESSAGE);
-        }
-        return {
-          callId: call.id,
-          tool: call.tool,
-          ok: true,
-          data: {
-            source: 'web',
-            sourceTitle: page ? page.title : finalHostname,
-            sourceUrl: response.url || target,
-            title: page ? page.title : finalHostname,
-            url: response.url || target,
-            retrievedText: text,
-            retrievedAt: now().toISOString(),
-            timestamp: now().toISOString(),
-          },
-          unavailableReason: null,
-          error: null,
-          executedBy: 'SERVER',
-          provider: 'web' as never,
-        };
-      } catch {
-        return toolUnavailable(call, 'NO_DATA', HONEST_UNAVAILABLE_MESSAGE);
-      } finally {
-        clearTimeout(timer);
-      }
+      const retrieved = await retrieveOfficial(target, query);
+      if (!retrieved) return toolUnavailable(call, 'NO_DATA', HONEST_UNAVAILABLE_MESSAGE);
+      return {
+        callId: call.id,
+        tool: call.tool,
+        ok: true,
+        data: {
+          source: 'web',
+          sourceTitle: page ? page.title : retrieved.hostname,
+          sourceUrl: retrieved.url,
+          title: page ? page.title : retrieved.hostname,
+          url: retrieved.url,
+          retrievedText: retrieved.text,
+          retrievedAt: now().toISOString(),
+          timestamp: now().toISOString(),
+        },
+        unavailableReason: null,
+        error: null,
+        executedBy: 'SERVER',
+        provider: 'web' as never,
+      };
     },
   };
 }
