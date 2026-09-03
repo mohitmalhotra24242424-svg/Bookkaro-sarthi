@@ -74,6 +74,8 @@ export interface AIReplyInput {
   tone: 'FRIENDLY' | 'CONCISE';
   /** The user's exact current turn, so the AI can answer THAT specific question from the verified data (e.g. a stoppage yes/no). */
   userMessage?: string;
+  /** Deterministic template the model should rephrase — same facts only, never contradict. */
+  draftReply?: string;
 }
 
 export interface AIReplyResult {

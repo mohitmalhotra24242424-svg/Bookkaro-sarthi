@@ -874,6 +874,7 @@ describe('AI role + day-part clock contract (AI interprets, deterministic enforc
     expect(prompt).toMatch(/NEVER call searchTrains again/i);
     expect(prompt).toMatch(/COMPARE_TRAINS/i);
     expect(prompt).toMatch(/NLU is fallback only/i);
+    expect(prompt).toMatch(/phrase every user-facing answer/i);
   });
 
   it('NLU hint lists the full verified search (not just 6 trains) so the AI can pick the fastest of the whole list', () => {
@@ -1012,6 +1013,78 @@ describe('CONVERSATION MEMORY: the AI sees recent context so follow-ups are not 
     expect(turn.context.origin?.code).toBe('ASR');
     expect(turn.context.destination?.code).toBe('LDH');
     expect(turn.reply).toMatch(/subah|samajh/i);
+  });
+});
+
+
+describe('NVIDIA phrases every user-facing reply (NLU is understand-fallback only)', () => {
+  it('search with cards is still NVIDIA-phrased from the template draft', async () => {
+    const harness = createHarness();
+    const ai: AIProvider = {
+      providerId: 'nvidia-test',
+      async understand(): Promise<AIUnderstandingResult> {
+        return plan('BOOK_TRAIN', { originQuery: 'Amritsar', destinationQuery: 'Ludhiana', dateText: 'kal' });
+      },
+      async generateResponse(input) {
+        expect(input.draftReply).toMatch(/train/i);
+        return { message: 'Amritsar se Ludhiana kal ki trains mili hain — cards pe dekho.', askForField: null };
+      },
+    };
+    const turn = await run(harness, freshContext(), 'Kal Amritsar se Ludhiana jaana hai', { ai });
+    expect(turn.usedFallbackNlu).toBe(false);
+    expect(turn.reply).toMatch(/cards pe dekho/);
+    expect(turn.cards?.length).toBeGreaterThan(0);
+  });
+
+  it('even when NLU classifies (understand fallback), NVIDIA still phrases live status', async () => {
+    const harness = createHarness();
+    const ai: AIProvider = {
+      providerId: 'nvidia-test',
+      async understand(): Promise<AIUnderstandingResult> {
+        return { hello: 'world' } as unknown as AIUnderstandingResult;
+      },
+      async generateResponse(input) {
+        expect(input.draftReply).toMatch(/12014/);
+        return { message: '12014 chal rahi hai bhai, 6 minute late hai.', askForField: null };
+      },
+    };
+    const turn = await run(harness, freshContext(), '12014 ka live status batao', { ai });
+    expect(turn.usedFallbackNlu).toBe(true);
+    expect(turn.intent).toBe('LIVE_TRAIN_STATUS');
+    expect(turn.reply).toMatch(/chal rahi hai bhai/);
+    expect(turn.reply).not.toBe('ok');
+  });
+
+  it('ScriptedAI ok/English still falls back to the search template', async () => {
+    const harness = createHarness();
+    const turn = await run(
+      harness,
+      freshContext(),
+      'Kal Amritsar se Ludhiana jaana hai',
+      { ai: new ScriptedAI(plan('BOOK_TRAIN', { originQuery: 'Amritsar', destinationQuery: 'Ludhiana', dateText: 'kal' })) },
+    );
+    expect(turn.cards?.length).toBeGreaterThan(0);
+    expect(turn.reply).not.toBe('ok');
+    expect(turn.reply).toMatch(/train/i);
+  });
+
+  it('live-status unavailable still uses the honest template even if NVIDIA invents an arrival', async () => {
+    const { providerFailure } = await import('../../shared/index.js');
+    const harness = createHarness({
+      liveStatus: providerFailure('HTTP_ERROR', 'upstream down', { httpStatus: 503, source: 'RAILCORE' }),
+    });
+    const ai: AIProvider = {
+      providerId: 'nvidia-test',
+      async understand(): Promise<AIUnderstandingResult> {
+        return plan('LIVE_TRAIN_STATUS', { trainNumber: '12014' });
+      },
+      async generateResponse() {
+        return { message: '12014 abhi New Delhi pahunch chuki hai bhai.', askForField: null };
+      },
+    };
+    const turn = await run(harness, freshContext(), '12014 ka live status batao', { ai });
+    expect(turn.reply).toMatch(/available nahi/i);
+    expect(turn.reply).not.toMatch(/pahunch chuki/i);
   });
 });
 

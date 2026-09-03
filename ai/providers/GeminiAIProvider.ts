@@ -84,7 +84,7 @@ export class GeminiAIProvider implements AIProvider {
         parts: [
           {
             text:
-              `Answer the user's question in friendly Hinglish using ONLY the facts in this verified JSON. Never invent trains, fares, availability, stations or stop times; if the asked station is not in the stop list, say so plainly; if data is missing, say unavailable. No URLs, no markdown tables.\n${user}\n\nVerified JSON:\n` +
+              `You phrase every user-facing answer in friendly Hinglish using ONLY the facts in this verified JSON (rephrase templateDraft if present; do not contradict it). Never invent trains, fares, availability, stations or stop times; if the asked station is not in the stop list, say so plainly; if data is missing, say unavailable. No URLs, no markdown tables.\n${user}\n\nVerified JSON:\n` +
               verifiedReplyContext(input),
           },
         ],

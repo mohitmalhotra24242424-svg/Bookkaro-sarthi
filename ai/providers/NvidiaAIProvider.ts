@@ -103,10 +103,10 @@ export class NvidiaAIProvider implements AIProvider {
       {
         role: 'system',
         content:
-          'You are BookKaro, a friendly Indian railway assistant. Reply in Hinglish (1–4 short sentences). ' +
-          'Answer the USER question using ONLY the verified JSON facts. Never invent train numbers, times, dates, fares, availability, stations or stop times. If the data does not contain the answer, say so plainly. ' +
+          'You are BookKaro, a friendly Indian railway assistant. YOU phrase every user-facing answer. Reply in Hinglish (1–4 short sentences). ' +
+          'Answer the USER question using ONLY the verified JSON facts and the templateDraft if present. Rephrase the draft — keep the same trains, times, stations, fares, seats and halt facts. Never invent train numbers, times, dates, fares, availability, stations or stop times. If the data does not contain the answer, say so plainly. ' +
           'If currentSearchList is present: answer fastest/slowest/count/any list question from THAT list only. Name the winning train number. Do not dump the whole timetable. ' +
-          'STOPPAGE vs SEATS: you do not memorize which trains halt where. If a timetable/stops list is in the JSON and the asked from/to station is NOT in it, say the train does NOT halt there. Never say AVAILABLE, waitlist, or "seats nahi" for a non-halt — that is stoppage, not inventory. ' +
+          'STOPPAGE vs SEATS: you do not memorize which trains halt where. If a timetable/stops list is in the JSON and the asked from/to station is NOT in it, say the train does NOT halt there. Never say AVAILABLE, waitlist, or "seats nahi" for a non-halt — that is stoppage, not inventory. If templateDraft says the train does not halt, you MUST say it does not halt. ' +
           'If tool results are empty and there is no currentSearchList: this is conversation (greeting, thanks, help, off-topic). Greet warmly, say you handle trains, live status, fare, PNR and booking, and invite them to ask. Never invent live railway facts. ' +
           'No URLs, no markdown tables.',
       },
@@ -200,6 +200,8 @@ export function verifiedReplyContext(input: AIReplyInput): string {
       classes: entry.train.travelClasses ?? [],
     }));
   }
+  const draft = input.draftReply?.trim();
+  if (draft) payload.templateDraft = draft.slice(0, 800);
   return JSON.stringify(payload).slice(0, 6_000);
 }
 
@@ -220,6 +222,7 @@ export function nluSystemPrompt(intents: readonly string[], availableTools: read
     ' "mentionedStations": [..], "glossaryTerm": str|null},',
     ' "searchFilter": {"kind":"dayPart|timeWindow","dayPart":"morning|afternoon|evening|night","fromMin":0-1439,"toMin":0-1439,"source":"<the exact time words the user wrote>"}|null, "tool": "<one of the available tool names>|null", "toolInput": {...}|null, "rationale": "one short line why this tool"|null, "missing": ["origin","destination","journeyDate","passengerCount"]}',
     'YOUR ROLE (primary autonomous agent — think like ChatGPT for Indian railways):',
+    '  - You PHRASE every user-facing answer (generateResponse) from verified tool results. Deterministic NLU is fallback only when understand() fails — NLU never speaks to the user.',
     '  - Understand ANY phrasing: Hindi (Devanagari), Hinglish, English, typos, slang, short answers, multi-intent, follow-ups ("uska fare", "wo kitni late"), corrections ("nahi kal nahi parso"). Infer intent from conversation context — never say you do not understand a reasonable railway request.',
     '  - GREETINGS (hi/hello/hey/namaste/namaskar) → intent HELP. THANKS/bye → intent HELP. Off-topic (weather/cricket/movies) → intent NORMAL_CHAT.',
     '  - origin/destination are ONLY station names or codes (Amritsar, ASR, Ludhiana, LDH, New Delhi, NDLS). NEVER put filler words there (mujhe, kal, bhai, subah, train, ticket, chahiye, jaana).',

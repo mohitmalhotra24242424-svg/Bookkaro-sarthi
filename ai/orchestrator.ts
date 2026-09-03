@@ -345,42 +345,28 @@ async function finish(
 ): Promise<OrchestratorTurn> {
   let reply = templateReply;
 
-  if (
-    options.allowAiNarration &&
-    !options.usedFallbackNlu &&
-    state.deps.ai.providerId !== 'deterministic-nlu'
-  ) {
+  const anyUsableData = state.toolResults.some((result) => result.ok && result.data !== null);
+  const toolsFailedHonestly = state.toolResults.length > 0 && !anyUsableData;
+  if (options.factsFromTools === true && toolsFailedHonestly) {
+    reply = railwayUnavailableReply(state.toolResults[state.toolResults.length - 1]!);
+  }
+
+  // NVIDIA phrases every user-facing reply. Skip only when tools returned no
+  // usable data (the model must not invent live status / trains / seats) or
+  // when the provider is deterministic-nlu. usedFallbackNlu does NOT block
+  // phrasing: NLU may classify; NVIDIA still speaks. Cards/chips/panels stay UI.
+  const skipAi = toolsFailedHonestly || state.deps.ai.providerId === 'deterministic-nlu';
+  if (!skipAi) {
     const narrated = await maybeAiReply(state, reply);
-    const listed = state.context.lastSearchResults ?? [];
-    if (narrated && aiReplySafeForList(narrated, listed)) {
+    if (narrated && aiReplySafeForFacts(narrated, state, reply)) {
       reply = narrated;
-      const winner = state.cards?.length === 1 ? state.cards[0]!.number : null;
+      const winnerFromCard = state.cards?.length === 1 ? state.cards[0]!.number : null;
+      const winnerFromDraft = templateReply.match(/WINNER:\s*(\d{4,5})/i)?.[1] ?? null;
+      const winner = winnerFromCard ?? winnerFromDraft;
       if (winner && !new RegExp(`WINNER:\\s*${winner}\\b`, 'i').test(reply)) {
         reply = `${reply}\nWINNER: ${winner}`;
       }
     }
-  } else if (options.factsFromTools === true) {
-    const anyUsableData = state.toolResults.some((result) => result.ok && result.data !== null);
-    const allUnavailable = state.toolResults.length > 0 && !anyUsableData;
-    if (allUnavailable) {
-      reply = railwayUnavailableReply(state.toolResults[state.toolResults.length - 1]!);
-    } else {
-      // Never let the model rewrite search/booking or structured UI — it invents
-      // routes (Ajmer vs Amritsar) and markdown tables. Templates + cards only.
-      const structured = Boolean(state.cards || state.chips || state.panel);
-      const bookingIntent = intent === 'BOOK_TRAIN' || intent === 'SEARCH_TRAIN';
-      if (!structured && !bookingIntent && state.deps.ai.providerId !== 'deterministic-nlu') {
-        reply = (await maybeAiReply(state, reply)) ?? reply;
-      }
-    }
-  } else if (
-    (intent === 'HELP' || intent === 'NORMAL_CHAT') &&
-    !options.usedFallbackNlu &&
-    state.deps.ai.providerId !== 'deterministic-nlu'
-  ) {
-    // Greetings / thanks / off-topic: let the real model phrase the reply.
-    // Template stays the fallback if phrasing fails the safety gates.
-    reply = (await maybeAiReply(state, reply)) ?? reply;
   }
 
   const resumeSuffix =
@@ -415,12 +401,33 @@ function nowIso(state: TurnState): string {
 }
 
 /** Invented 5-digit train numbers (not on the verified list) reject the AI prose. */
-function aiReplySafeForList(text: string, results: readonly TrainSearchResult[]): boolean {
-  if (results.length === 0) return true;
-  const listed = new Set(results.map((entry) => entry.train.number.replace(/^0+/, '') || entry.train.number));
+function aiReplySafeForList(text: string, results: readonly TrainSearchResult[], extraAllowed: readonly string[] = []): boolean {
+  const listed = new Set<string>();
+  const add = (raw: string) => {
+    listed.add(raw);
+    listed.add(raw.replace(/^0+/, '') || raw);
+  };
+  for (const entry of results) add(entry.train.number);
+  for (const blob of extraAllowed) {
+    for (const match of blob.matchAll(/\b(\d{5})\b/g)) add(match[1]!);
+  }
   for (const match of text.matchAll(/\b(\d{5})\b/g)) {
     const n = match[1]!.replace(/^0+/, '') || match[1]!;
     if (!listed.has(n) && !listed.has(match[1]!)) return false;
+  }
+  return true;
+}
+
+/** Reject invented 5-digit trains; never turn a "does not halt" draft into seats. */
+function aiReplySafeForFacts(text: string, state: TurnState, draft: string): boolean {
+  if (!aiReplySafeForList(text, state.context.lastSearchResults ?? [], [state.message, draft])) {
+    return false;
+  }
+  if (
+    /does not (commercially )?halt|is station par rukti nahi|NAHI rukti|nahi rukti|does not stop/i.test(draft) &&
+    /\b(WL|RAC|CNF|AVAILABLE|seats? available|seat available)\b/i.test(text)
+  ) {
+    return false;
   }
   return true;
 }
@@ -429,7 +436,7 @@ function aiReplySafeForList(text: string, results: readonly TrainSearchResult[])
 async function maybeAiReply(state: TurnState, _templateReply: string): Promise<string | null> {
   try {
     const result = await withTimeout(
-      state.deps.ai.generateResponse({ conversation: state.context, toolResults: state.toolResults, tone: 'FRIENDLY', userMessage: state.message }),
+      state.deps.ai.generateResponse({ conversation: state.context, toolResults: state.toolResults, tone: 'FRIENDLY', userMessage: state.message, draftReply: _templateReply }),
       state.deps.aiTimeoutMs ?? 6_000,
     );
     if (typeof result.message !== 'string' || result.message.trim().length < 5) return null;
