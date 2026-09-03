@@ -102,6 +102,7 @@ describe('shared types: nullability & honest UNKNOWN/UNAVAILABLE states', () => 
       | 'getBookings'
       | 'getWallet'
       | 'getRailwayKnowledge'
+      | 'getOfficialWebFallback'
       | 'compareTrains'
       | 'createBookingDraft'
       | 'reviewFare'

@@ -24,10 +24,13 @@ import { toolFailure, toolUnavailable } from '../results.js';
 export const RAILWAY_WEB_ALLOWLIST: readonly string[] = [
   'indianrail.gov.in',
   'www.indianrail.gov.in',
+  'enquiry.indianrail.gov.in',
   'indianrailways.gov.in',
   'www.indianrailways.gov.in',
   'cris.org.in',
   'www.cris.org.in',
+  'irctc.co.in',
+  'www.irctc.co.in',
 ];
 
 const KNOWLEDGE_FETCH_TIMEOUT_MS = 6_000;
@@ -78,6 +81,38 @@ export const OFFICIAL_RAILWAY_PAGES: readonly OfficialRailwayPage[] = [
     matches: /refund|niyam|rules?|luggage|concession|reservation rules|conditions/i,
   },
 ];
+
+/** Official enquiry pages used ONLY after the railway API fails (never as primary live data). */
+export const API_FALLBACK_PAGES: readonly OfficialRailwayPage[] = [
+  {
+    key: 'ntes',
+    title: 'National Train Enquiry — Indian Railways (official)',
+    url: 'https://www.indianrail.gov.in/enquiry/NTES/Ntess.html',
+    matches: /\blive\b|kaha hai|kahan hai|running|delay|late|train status|ntes/i,
+  },
+  {
+    key: 'tbis',
+    title: 'Trains between stations — Indian Railways (official)',
+    url: 'https://www.indianrail.gov.in/enquiry/TBIS/TrainBetweenSearch.html',
+    matches: /\btrains?\b|gaadiyan|se .* (jaana|jana)|from .+ to /i,
+  },
+  {
+    key: 'pnr-fallback',
+    title: 'PNR Enquiry — Indian Railways (official)',
+    url: 'https://www.indianrail.gov.in/enquiry/PNR/PnrEnquiry.html',
+    matches: /\bpnr\b/i,
+  },
+];
+
+function detectFallbackPage(query: string): OfficialRailwayPage | null {
+  for (const page of API_FALLBACK_PAGES) {
+    if (page.matches.test(query)) return page;
+  }
+  for (const page of OFFICIAL_RAILWAY_PAGES) {
+    if (page.matches.test(query)) return page;
+  }
+  return null;
+}
 
 /** Topic-directed official page for a general knowledge query (null → site root). */
 export function detectOfficialPage(query: string): OfficialRailwayPage | null {
@@ -254,6 +289,55 @@ export function createKnowledgeToolExecutor(options: KnowledgeToolOptions = {}):
             sourceTitle: officialPage ? officialPage.title : finalHostname,
             sourceUrl: response.url || target,
             title: officialPage ? officialPage.title : finalHostname,
+            url: response.url || target,
+            retrievedText: text,
+            retrievedAt: now().toISOString(),
+            timestamp: now().toISOString(),
+          },
+          unavailableReason: null,
+          error: null,
+          executedBy: 'SERVER',
+          provider: 'web' as never,
+        };
+      } catch {
+        return toolUnavailable(call, 'NO_DATA', HONEST_UNAVAILABLE_MESSAGE);
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+
+    /** SERVER-ONLY: official allowlisted web after a railway API timeout/unavailable. */
+    getOfficialWebFallback: async (input, ctx): Promise<ToolResult> => {
+      const call = { id: ctx.call?.id ?? null, tool: 'getOfficialWebFallback' };
+      const query = typeof input.query === 'string' ? input.query.trim() : '';
+      if (query.length < 3) return toolFailure(call, 'INVALID_INPUT', 'query is required.');
+      const page = detectFallbackPage(query);
+      const target = page ? page.url : 'https://www.indianrail.gov.in/';
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), KNOWLEDGE_FETCH_TIMEOUT_MS);
+      try {
+        const response = await fetchImpl(target, {
+          headers: { accept: 'text/html' },
+          signal: controller.signal,
+          redirect: 'error',
+        });
+        const finalHostname = response.url ? new URL(response.url).hostname : new URL(target).hostname;
+        if (!response.ok || !isAllowlisted(finalHostname)) {
+          return toolUnavailable(call, 'NO_DATA', HONEST_UNAVAILABLE_MESSAGE);
+        }
+        const text = sanitizeHtml(await response.text());
+        if (text.length < 40) {
+          return toolUnavailable(call, 'NO_DATA', HONEST_UNAVAILABLE_MESSAGE);
+        }
+        return {
+          callId: call.id,
+          tool: call.tool,
+          ok: true,
+          data: {
+            source: 'web',
+            sourceTitle: page ? page.title : finalHostname,
+            sourceUrl: response.url || target,
+            title: page ? page.title : finalHostname,
             url: response.url || target,
             retrievedText: text,
             retrievedAt: now().toISOString(),

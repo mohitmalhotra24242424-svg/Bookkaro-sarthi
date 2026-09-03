@@ -206,6 +206,23 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'Web retrieval is domain-allowlisted server-side; arbitrary URLs are rejected; live-data queries are refused web access. Honest unavailable when neither source answers.',
   },
   {
+    name: 'getOfficialWebFallback',
+    category: 'RAILWAY_DATA',
+    summary: 'Allowlisted official web ONLY after the railway API timed out or failed. Never AI-requestable.',
+    description:
+      'Server-only fallback: when RailCore/RailKit return TIMEOUT/UNAVAILABLE, fetch sanitized text from official Indian Railways domains. Never invents seats, fares or times. Not used for honest empty results (NO_RESULTS/NOT_FOUND).',
+    input: [
+      field('query', 'string', true, 'The user question to retrieve official context for'),
+      field('reason', 'string', false, 'Provider failure code that triggered the fallback'),
+    ],
+    outputDescription: '{ source: web, title, url, retrievedText, timestamp }',
+    aiRequestable: false,
+    executionPolicy: 'DETERMINISTIC_ONLY',
+    sideEffects: 'NONE',
+    status: 'NOT_IMPLEMENTED',
+    safetyNotes: 'AI cannot request this tool. Orchestrator calls it only after a railway provider failure.',
+  },
+  {
     name: 'compareTrains',
     category: 'RAILWAY_DATA',
     summary: 'Compare 2–5 trains to help the user choose.',

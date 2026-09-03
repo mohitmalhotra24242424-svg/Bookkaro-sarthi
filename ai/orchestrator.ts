@@ -294,7 +294,12 @@ function validateUnderstanding(deps: OrchestratorDependencies, raw: unknown) {
 
 const MAX_TOOLS_PER_TURN = 5;
 
-async function executeTool(state: TurnState, tool: ToolName, input: Record<string, unknown>): Promise<ToolResult> {
+async function executeTool(
+  state: TurnState,
+  tool: ToolName,
+  input: Record<string, unknown>,
+  requestedBy: 'AI' | 'SERVER' = 'AI',
+): Promise<ToolResult> {
   if (state.toolCalls.length >= MAX_TOOLS_PER_TURN) {
     const refused: ToolResult = {
       callId: null,
@@ -311,12 +316,12 @@ async function executeTool(state: TurnState, tool: ToolName, input: Record<strin
     id: newId('tc'),
     tool,
     input,
-    requestedBy: 'AI',
+    requestedBy,
     conversationId: state.context.id,
     createdAt: new Date().toISOString(),
   };
   const context: ToolExecutionContext = {
-    actor: 'AI',
+    actor: requestedBy,
     userId: state.context.userId,
     conversationId: state.context.id,
     call,
@@ -351,12 +356,39 @@ async function finish(
 ): Promise<OrchestratorTurn> {
   let reply = templateReply;
 
+  // Primary = railway API. If it timed out / went unavailable (not an honest
+  // empty result), try allowlisted official web once. Never invent.
+  const lastBeforeWeb = state.toolResults[state.toolResults.length - 1];
+  const providerDown =
+    lastBeforeWeb?.error?.code === 'RAILWAY_TIMEOUT' || lastBeforeWeb?.error?.code === 'RAILWAY_DATA_UNAVAILABLE';
+  const alreadyWeb = state.toolCalls.some((call) => call.tool === 'getOfficialWebFallback');
+  const skipWebForBooking =
+    isCollectingBookingSlot(state.context) ||
+    state.context.bookingStage === 'WAITING_CONFIRMATION' ||
+    state.context.bookingStage === 'PASSENGER_DETAILS_REQUIRED';
+  if (providerDown && !alreadyWeb && !skipWebForBooking && state.toolCalls.length < MAX_TOOLS_PER_TURN) {
+    const web = await executeTool(
+      state,
+      'getOfficialWebFallback',
+      { query: state.message.slice(0, 180), reason: lastBeforeWeb?.error?.code ?? 'UNAVAILABLE' },
+      'SERVER',
+    );
+    const webData = dataOf<{ retrievedText: string; sourceTitle?: string | null }>(web);
+    if (webData?.retrievedText && webData.retrievedText.length >= 40) {
+      const title = webData.sourceTitle ? ` (${webData.sourceTitle})` : '';
+      reply =
+        `${webData.retrievedText.slice(0, 700)}\n` +
+        `(Primary railway API se data nahi aaya. Verified official web${title} se — seats/fare/time invent nahi kiye.)`;
+    }
+  }
+
   const anyUsableData = state.toolResults.some((result) => result.ok && result.data !== null);
   const toolsFailedHonestly = state.toolResults.length > 0 && !anyUsableData;
   const lastTool = state.toolResults[state.toolResults.length - 1];
   const railwayFetchFailed = Boolean(
     lastTool &&
-      ((lastTool.unavailableReason && lastTool.unavailableReason !== 'NOT_IMPLEMENTED') ||
+      (lastTool.unavailableReason === 'NO_RESULTS' ||
+        lastTool.unavailableReason === 'NOT_FOUND' ||
         lastTool.error?.code === 'RAILWAY_DATA_UNAVAILABLE' ||
         lastTool.error?.code === 'RAILWAY_TIMEOUT' ||
         lastTool.error?.code === 'RAILWAY_CAPABILITY_UNSUPPORTED' ||
@@ -364,7 +396,7 @@ async function finish(
   );
   // No verified railway payload → never let NLU/template/AI invent trains/seats/times.
   if (toolsFailedHonestly && (options.factsFromTools === true || railwayFetchFailed || state.aiTimedOut)) {
-    if (state.aiTimedOut || lastTool?.error?.code === 'RAILWAY_TIMEOUT') {
+    if (state.aiTimedOut || lastBeforeWeb?.error?.code === 'RAILWAY_TIMEOUT' || lastTool?.error?.code === 'RAILWAY_TIMEOUT') {
       reply = railwayFetchSlowReply();
     } else {
       reply = railwayUnavailableReply(lastTool!);

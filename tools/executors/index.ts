@@ -14,6 +14,7 @@ import { createInMemoryDraftStore } from './draftStore.js';
 import type { BookingDraftStore } from './draftStore.js';
 import { createMockBookingExecutors, createInMemoryBookingStore } from './bookingExecution.js';
 import { createKnowledgeToolExecutor } from './knowledgeTools.js';
+import type { KnowledgeFetch } from './knowledgeTools.js';
 import type { BookingStore } from './bookingExecution.js';
 import { createMockWalletService } from '../../wallet/index.js';
 import type { WalletService } from '../../wallet/index.js';
@@ -23,6 +24,8 @@ export interface ProductionToolOptions {
   draftStore?: BookingDraftStore;
   walletService?: WalletService;
   bookingStore?: BookingStore;
+  /** Injectable knowledge/web transport (tests block the network). */
+  knowledgeFetch?: KnowledgeFetch;
 }
 
 /** Statuses flipped to IMPLEMENTED now that deterministic executors exist. */
@@ -43,6 +46,7 @@ const IMPLEMENTED_TOOLS = new Set<ToolName>([
   'acknowledgeBookingConfirmation',
   'executeMockBooking',
   'getRailwayKnowledge',
+  'getOfficialWebFallback',
 ]);
 
 export function createProductionToolRegistry(options: ProductionToolOptions): ToolRegistry {
@@ -54,7 +58,7 @@ export function createProductionToolRegistry(options: ProductionToolOptions): To
   const railwayExecutors = createRailwayToolExecutors(options.router);
   const applicationExecutors = createApplicationToolExecutors(draftStore, options.router);
   const bookingExecutors = createMockBookingExecutors(draftStore, walletService, bookingStore);
-  const knowledgeExecutors = createKnowledgeToolExecutor();
+  const knowledgeExecutors = createKnowledgeToolExecutor({ fetchImpl: options.knowledgeFetch });
   const executors: Record<string, (input: Record<string, unknown>, ctx: never) => Promise<unknown>> = {
     ...railwayExecutors,
     ...applicationExecutors,

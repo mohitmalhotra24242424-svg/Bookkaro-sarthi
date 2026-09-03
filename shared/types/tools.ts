@@ -13,6 +13,7 @@ export type ToolName =
   | 'getBookings'
   | 'getWallet'
   | 'getRailwayKnowledge'
+  | 'getOfficialWebFallback'
   | 'compareTrains'
   | 'createBookingDraft'
   | 'reviewFare'

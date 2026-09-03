@@ -160,6 +160,10 @@ export interface HarnessOptions {
    * existing tests keep the default makeSearchResults().
    */
   searchResults?: readonly TrainSearchResult[];
+  /** Override official-web fetch (default: blocked so unit tests never hit the network). */
+  knowledgeFetch?: (url: string, init: { headers: Record<string, string>; signal?: AbortSignal; redirect?: 'error' }) => Promise<{
+    ok: boolean; status: number; url?: string; text(): Promise<string>;
+  }>;
 }
 
 /** Fake provider pair with a realistic station-lookup that filters by query. */
@@ -218,7 +222,13 @@ export function createHarness(script: RouterScript = {}, options: HarnessOptions
     now: () => new Date('2026-08-26T10:00:00.000Z'), // fixed test clock — dates are validated against THIS
   });
 
-  const toolRegistry = createProductionToolRegistry({ router });
+  const blockedWeb = async () => {
+    throw new Error('harness-blocks-web');
+  };
+  const toolRegistry = createProductionToolRegistry({
+    router,
+    knowledgeFetch: options.knowledgeFetch ?? (blockedWeb as never),
+  });
   const deps: OrchestratorDependencies = {
     ai: new DeterministicNLUProvider(),
     fallbackNlu: new DeterministicNLUProvider(),

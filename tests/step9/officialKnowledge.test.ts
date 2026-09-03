@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ConversationContext } from '../../shared/index.js';
 import { createHarness, freshContext, run } from '../orchestration/harness.js';
-import { setContextSlots } from '../../shared/index.js';
+import { setContextSlots, providerFailure } from '../../shared/index.js';
 import {
   HONEST_UNAVAILABLE_MESSAGE,
   OFFICIAL_RAILWAY_PAGES,
@@ -192,5 +192,63 @@ describe('§K15: general knowledge during booking — context preserved', () => 
     expect(resumed.context.journeyDate).toBe(before.date);
     expect(resumed.context.passengerCount).toBe(before.pax);
     void setContextSlots;
+  });
+});
+
+
+describe('API-first, official web only after provider fallout', () => {
+  it('getOfficialWebFallback can retrieve live-style queries from allowlisted pages', async () => {
+    const calls: string[] = [];
+    const impl = (async (url: string) => {
+      calls.push(String(url));
+      return {
+        ok: true,
+        status: 200,
+        url: String(url),
+        text: async () => '<html><body>Indian Railways NTES official train enquiry page for running status of trains across the network.</body></html>',
+      };
+    }) as never;
+    const executor = createKnowledgeToolExecutor({ fetchImpl: impl }).getOfficialWebFallback!;
+    const result = await executor({ query: '12014 live status kya hai', reason: 'RAILWAY_TIMEOUT' }, ctxStub);
+    expect(result.ok).toBe(true);
+    expect(calls[0]).toMatch(/indianrail\.gov\.in/);
+    const data = result.data as { source: string; retrievedText: string };
+    expect(data.source).toBe('web');
+    expect(data.retrievedText.length).toBeGreaterThan(40);
+  });
+
+  it('getRailwayKnowledge still refuses live queries (web is not primary)', async () => {
+    const calls: string[] = [];
+    const impl = (async (url: string) => { calls.push(String(url)); throw new Error('no'); }) as never;
+    const executor = createKnowledgeToolExecutor({ fetchImpl: impl }).getRailwayKnowledge!;
+    const result = await executor({ query: '12014 live status kya hai' }, ctxStub);
+    expect(result.ok).toBe(false);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('live-status API timeout → official web fallback, never invented delay', async () => {
+    const harness = createHarness(
+      { liveStatus: providerFailure('TIMEOUT', 'timed out', { source: 'RAILCORE' }) },
+      {
+        knowledgeFetch: async (url: string) => ({
+          ok: true,
+          status: 200,
+          url,
+          text: async () => '<html><body>Official NTES page: running train enquiry is published by Indian Railways for passengers.</body></html>',
+        }),
+      },
+    );
+    const turn = await run(harness, freshContext(), '12014 ka live status batao');
+    expect(turn.executedTools).toContain('getLiveStatus');
+    expect(turn.executedTools).toContain('getOfficialWebFallback');
+    expect(turn.reply).toMatch(/Primary railway API se data nahi aaya/i);
+    expect(turn.reply).toMatch(/official/i);
+    expect(turn.reply).not.toMatch(/6 minute late|platform 5/i);
+  });
+
+  it('successful live status does not call official web', async () => {
+    const turn = await run(createHarness(), freshContext(), '12014 ka live status batao');
+    expect(turn.executedTools).toContain('getLiveStatus');
+    expect(turn.executedTools).not.toContain('getOfficialWebFallback');
   });
 });

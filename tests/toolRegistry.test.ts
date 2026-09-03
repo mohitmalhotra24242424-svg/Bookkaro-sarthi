@@ -27,6 +27,7 @@ const EXPECTED_TOOLS = [
   'acknowledgeBookingConfirmation',
   'executeMockBooking',
   'getRailwayKnowledge',
+  'getOfficialWebFallback',
 ];
 
 function call(tool: ToolCall['tool'], input: Record<string, unknown>, requestedBy: ToolCall['requestedBy'] = 'AI'): ToolCall {
@@ -36,9 +37,9 @@ function call(tool: ToolCall['tool'], input: Record<string, unknown>, requestedB
 describe('tool registry: definitions', () => {
   const registry = createDefaultToolRegistry();
 
-  it('registers exactly the 18 planned tools', () => {
+  it('registers exactly the 19 planned tools', () => {
     expect(registry.list().map((d) => d.name).sort()).toEqual([...EXPECTED_TOOLS].sort());
-    expect(TOOL_DEFINITIONS).toHaveLength(18);
+    expect(TOOL_DEFINITIONS).toHaveLength(19);
   });
 
   it('every tool declares name, input, output, validation boundary and status', () => {
@@ -156,7 +157,7 @@ describe('tool registry: execution is server-side, honest and inert in Step 1', 
 
   it('describeAll returns JSON-serializable descriptors safe for AI prompts', () => {
     const descriptors = registry.describeAll();
-    expect(descriptors).toHaveLength(18);
+    expect(descriptors).toHaveLength(19);
     expect(() => JSON.stringify(descriptors)).not.toThrow();
     expect(JSON.stringify(descriptors)).not.toMatch(/https?:\/\//);
   });
