@@ -25,6 +25,7 @@ export const TOOL_PERMISSIONS: Readonly<Record<ToolName, ToolPermission>> = {
   getBookings: 'READ',
   getWallet: 'READ',
   getRailwayKnowledge: 'READ',
+  getOfficialWebFallback: 'READ',
   compareTrains: 'READ',
   createBookingDraft: 'DRAFT',
   reviewFare: 'DRAFT',
