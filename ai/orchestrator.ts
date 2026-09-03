@@ -473,6 +473,22 @@ function aiReplySafeForList(text: string, results: readonly TrainSearchResult[],
 }
 
 /** Reject invented 5-digit trains; never turn a "does not halt" draft into seats. */
+function isGenericAssistantIntro(text: string): boolean {
+  const t = text.toLowerCase();
+  const intro = /namaste|swagat hai|railway assistant|main bookkaro/.test(t);
+  const dump = /live status, fare, pnr|travel details|date, class, passenger|kya chahiye/.test(t);
+  const noTrains = !/\b\d{4,5}\b/.test(text);
+  return noTrains && intro && dump;
+}
+
+function userStatedJourney(message: string): boolean {
+  return (
+    /\b(jaana|jana|jaaye|jaye|ticket|tickets|chahiye)\b/i.test(message) &&
+    /\bse\b|\bfrom\b|\bto\b/i.test(message)
+  );
+}
+
+/** Reject invented 5-digit trains; never turn a "does not halt" draft into seats. */
 function aiReplySafeForFacts(text: string, state: TurnState, draft: string): boolean {
   if (!aiReplySafeForList(text, state.context.lastSearchResults ?? [], [state.message, draft])) {
     return false;
@@ -483,6 +499,10 @@ function aiReplySafeForFacts(text: string, state: TurnState, draft: string): boo
   ) {
     return false;
   }
+  // NVIDIA must not throw away a journey/search/slot-ask and restart as a welcome intro.
+  if (isGenericAssistantIntro(text) && !isGenericAssistantIntro(draft)) return false;
+  if ((state.cards?.length ?? 0) > 0 && isGenericAssistantIntro(text)) return false;
+  if (userStatedJourney(state.message) && isGenericAssistantIntro(text)) return false;
   return true;
 }
 
@@ -517,6 +537,18 @@ function aiReplyKeepsPendingAsk(text: string, state: TurnState): boolean {
     return false;
   }
   if (asked === 'passengerCount' && !/(passenger|log|kitne|\?|1 se 6)/i.test(text)) {
+    return false;
+  }
+  if ((asked === 'origin' || asked === 'destination') && isGenericAssistantIntro(text)) {
+    return false;
+  }
+  if ((asked === 'origin' || asked === 'destination') && !/(station|kaunsa|choose|chip|boarding|kahan se|kahan tak|\([A-Z]{2,5}\))/i.test(text)) {
+    return false;
+  }
+  if (asked === 'journeyDate' && isGenericAssistantIntro(text)) {
+    return false;
+  }
+  if (asked === 'journeyDate' && !/(date|kal|aaj|parso|din|\?)/i.test(text)) {
     return false;
   }
   return true;
@@ -1647,6 +1679,20 @@ async function handleJourney(state: TurnState, u: AIUnderstandingResult, usedFal
   if (u.slots.dateText && !context.journeyDate) {
     const resolvedDate = resolveDateText(u.slots.dateText, state.now);
     if (resolvedDate) context = setContextSlots(context, { journeyDate: resolvedDate }, 'FILL_MISSING', nowIso(state));
+  }
+  // User already said kal/aaj/parso — never drop it just because the model missed dateText.
+  if (!context.journeyDate) {
+    const spoken = /\bkal\b|\btomorrow\b/i.test(state.message)
+      ? 'kal'
+      : /\baaj\b|\btoday\b/i.test(state.message)
+        ? 'aaj'
+        : /\bparso\b|day after tomorrow/i.test(state.message)
+          ? 'parso'
+          : null;
+    if (spoken) {
+      const resolvedDate = resolveDateText(spoken, state.now);
+      if (resolvedDate) context = setContextSlots(context, { journeyDate: resolvedDate }, 'FILL_MISSING', nowIso(state));
+    }
   }
   if (u.slots.passengerCount && !context.passengerCount) {
     context = setContextSlots(context, { passengerCount: u.slots.passengerCount }, 'FILL_MISSING', nowIso(state));

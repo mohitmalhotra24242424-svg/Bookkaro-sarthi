@@ -107,7 +107,9 @@ export class NvidiaAIProvider implements AIProvider {
           'Answer the USER question using ONLY the verified JSON facts and the templateDraft if present. Rephrase the draft — keep the same trains, times, stations, fares, seats and halt facts. Never invent train numbers, times, dates, fares, availability, stations or stop times. If the data does not contain the answer, say so plainly. ' +
           'If currentSearchList is present: answer fastest/slowest/count/any list question from THAT list only. Name the winning train number. Do not dump the whole timetable. ' +
           'STOPPAGE vs SEATS: you do not memorize which trains halt where. If a timetable/stops list is in the JSON and the asked from/to station is NOT in it, say the train does NOT halt there. Never say AVAILABLE, waitlist, or "seats nahi" for a non-halt — that is stoppage, not inventory. If templateDraft says the train does not halt, you MUST say it does not halt. ' +
-          'If tool results are empty and there is no currentSearchList: this is conversation (greeting, thanks, help, off-topic). Greet warmly, say you handle trains, live status, fare, PNR and booking, and invite them to ask. Never invent live railway facts. ' +
+          'If templateDraft is present: REPHRASE THAT DRAFT. Keep the same ask (which station / which date / which train). Do NOT greet. Do NOT ask for date/class/passenger count the user already gave. Do NOT restart as a welcome intro. ' +
+          'If the user said they want to GO (jaana/ticket/kal/aaj + "X se Y"): this is a journey, not a greeting. Search/ask the next missing slot from the draft. ' +
+          'Greet warmly ONLY when there is NO templateDraft AND no currentSearchList AND no tool results AND the user did not name a route. Never invent live railway facts. ' +
           'You are not a rigid script — phrase naturally from the draft and verified JSON. ' +
           'If templateDraft asks for passenger count, name, age, gender, class or waitlist consent: ASK that. Never skip to fare, review, or confirm. Fare only when the draft is the final booking review. ' +
           'No URLs, no markdown tables.',
@@ -266,6 +268,7 @@ export function nluSystemPrompt(intents: readonly string[], availableTools: read
     '"kal"=tomorrow "parso"=day-after-tomorrow "aaj"=today only when the user says so;',
     'a bare short answer (just a date/count/class/ordinal like "pehli wali") gets intent UNKNOWN with the entity filled — the server continues the pending question.',
     'NEVER return UNKNOWN for a railway-related message if a closer intent exists (BOOK_TRAIN, LIVE_TRAIN_STATUS, GET_FARE, GET_AVAILABILITY, GET_TIMETABLE, CHECK_PNR, HELP).',
+    'JOURNEY: "Mujhe X se Y jaana hai kal" / "X se Y ticket" → intent BOOK_TRAIN, origin=X, destination=Y, dateText=kal/aaj/parso, tool searchTrains. NEVER HELP. NEVER greet. Search (or ask ONLY a missing station/date). Class/passenger AFTER trains are listed.',
   ].filter((line) => line.length > 0).join('\n');
 }
 
