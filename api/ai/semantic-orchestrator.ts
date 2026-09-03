@@ -26,6 +26,7 @@ import {
   liveStatusReply,
   pnrReply,
   railwayUnavailableReply,
+  railwayFetchSlowReply,
   searchResultsReply,
   stationChoiceReply,
   timetableReply,
@@ -492,7 +493,7 @@ function speak(results: Map<string, SharedToolResult>, plan: SemanticPlan, conte
       parts.push(railwayUnavailableReply(asToolResult(call.tool)));
     }
   }
-  return parts.length > 0 ? parts.join('\n\n') : 'Abhi railway data available nahi ho raha. Thodi der baad try karein.';
+  return parts.length > 0 ? parts.join('\n\n') : railwayFetchSlowReply();
 }
 
 // ── diagnostics ──────────────────────────────────────────────────────────────
@@ -579,7 +580,7 @@ export async function runSemanticOrchestrator(
 
   if (!plan) {
     return {
-      reply: 'Abhi railway data available nahi ho raha. Thodi der baad try karein.',
+      reply: railwayFetchSlowReply(),
       intent: 'UNKNOWN',
       usedNlu: true,
       executedTools: [],
@@ -706,7 +707,7 @@ export async function runSemanticOrchestrator(
     }
   }
 
-  const reply = anySuccess ? speak(results, plan, context) : 'Abhi railway data available nahi ho raha. Thodi der baad try karein.';
+  const reply = anySuccess ? speak(results, plan, context) : railwayFetchSlowReply();
   return {
     reply,
     intent: plan.intent,

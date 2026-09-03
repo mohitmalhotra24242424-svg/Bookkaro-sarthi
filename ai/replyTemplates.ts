@@ -247,12 +247,22 @@ export function mockBookingFailureReply(reason: string): string {
 
 // ── failure / unavailable (never filled, never approximated) ────────────────
 
+/** Timeout / slow fetch — never invent trains, seats, fares or times. */
+export function railwayFetchSlowReply(): string {
+  return 'Abhi data fetch nahi ho raha — thoda time zyada lag raha hai. Railway data available nahi hai. Kripya dubara try karein. Main koi train, seat, fare ya time khud se invent nahi karunga.';
+}
+
 export function railwayUnavailableReply(result: ToolResult): string {
   if (result.unavailableReason === 'NO_RESULTS') return 'Is route/date par koi train nahi mili. Koi aur date ya route try karein?';
   if (result.unavailableReason === 'NOT_FOUND') return 'Ye train/PNR nahi mila — number check karke phir try karein.';
   if (result.error?.code === 'INVALID_RAILWAY_QUERY') return `Query thodi galat lag rahi hai: ${result.error.message}`;
   if (result.error?.code === 'RAILWAY_CAPABILITY_UNSUPPORTED') return 'Ye jaankari abhi available nahi hai.';
-  return 'Abhi railway data available nahi ho raha. Thodi der baad try karein — main andaza nahi lagaunga.';
+  const code = result.error?.code ?? '';
+  const msg = result.error?.message ?? '';
+  if (code === 'RAILWAY_TIMEOUT' || /timeout/i.test(code) || /timed out|timeout/i.test(msg)) {
+    return railwayFetchSlowReply();
+  }
+  return 'Abhi data fetch nahi ho raha. Railway data available nahi hai — kripya dubara try karein. Main andaza nahi lagaunga.';
 }
 
 export function cannotDoThatReply(): string {

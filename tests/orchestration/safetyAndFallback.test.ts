@@ -155,7 +155,44 @@ describe('hallucination protection (§6/§15)', () => {
 
     expect(turn.executedTools).toContain('getLiveStatus');
     expect(turn.reply).toMatch(/available nahi/i);       // honest unavailable template wins
+    expect(turn.reply).toMatch(/data fetch nahi/i);
+    expect(turn.reply).toMatch(/dubara try/i);
     expect(turn.reply).not.toMatch(/New Delhi pahunch/i); // AI prose did NOT fill the gap
+  });
+
+  it('provider TIMEOUT → fetch-slow reply, never invented live facts', async () => {
+    const harness = createHarness({
+      liveStatus: providerFailure('TIMEOUT', 'timed out', { source: 'RAILCORE' }),
+    });
+    const turn = await run(harness, freshContext(), '12014 ka live status batao');
+    expect(turn.executedTools).toContain('getLiveStatus');
+    expect(turn.reply).toMatch(/data fetch nahi/i);
+    expect(turn.reply).toMatch(/thoda time zyada lag/i);
+    expect(turn.reply).toMatch(/dubara try/i);
+    expect(turn.reply).not.toMatch(/pahunch|platform|minute late/i);
+    expect(turn.reply).not.toMatch(/RailCore|RailKit|API/i);
+  });
+
+  it('hanging AI + provider TIMEOUT → NLU/template invent nothing; ask to retry', async () => {
+    const harness = createHarness({
+      liveStatus: providerFailure('TIMEOUT', 'timed out', { source: 'RAILCORE' }),
+    });
+    const turn = await run(
+      harness,
+      freshContext(),
+      '12014 ka live status batao',
+      {
+        ai: new ScriptedAI(
+          { intent: 'LIVE_TRAIN_STATUS', confidence: 0.99, entities: { trainNumber: '12014' } },
+          { hang: true, reply: '12014 abhi New Delhi pahunch chuki hai aur 6 minute late thi.' },
+        ),
+        aiTimeoutMs: 60,
+      },
+    );
+    expect(turn.usedFallbackNlu).toBe(true);
+    expect(turn.reply).toMatch(/data fetch nahi/i);
+    expect(turn.reply).toMatch(/dubara try/i);
+    expect(turn.reply).not.toMatch(/New Delhi pahunch|6 minute late/i);
   });
 
   it('AI replies can never hand the user a URL', async () => {

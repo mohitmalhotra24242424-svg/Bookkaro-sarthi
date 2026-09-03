@@ -41,6 +41,9 @@ function mapProviderFailure(call: { id: string | null; tool: string }, result: P
     if (result.error.kind === 'UNSUPPORTED_CAPABILITY' || result.error.kind === 'NOT_IMPLEMENTED') {
       return toolFailure(call, 'RAILWAY_CAPABILITY_UNSUPPORTED', result.error.message);
     }
+    if (result.error.kind === 'TIMEOUT') {
+      return toolFailure(call, 'RAILWAY_TIMEOUT', 'Railway provider timed out.');
+    }
     // Honest, user-safe failure — no internal details, no fabricated data.
     return toolFailure(
       call,

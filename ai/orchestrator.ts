@@ -111,6 +111,7 @@ import {
   notAwaitingConfirmationReply,
   pnrReply,
   railwayUnavailableReply,
+  railwayFetchSlowReply,
   rephraseReply,
   searchResultsReply,
   selectionReply,
@@ -134,7 +135,7 @@ import {
 } from './slotResolution.js';
 import { collapseEquivalentStations, commercialHaltIndex, stationCodesMatch } from '../shared/trainHalt.js';
 import { validateAIUnderstanding } from './structuredOutput.js';
-import { withTimeout } from './timeout.js';
+import { TimeoutError, withTimeout } from './timeout.js';
 // Step 10 — automatic station-lookup resolution (provider-backed, all-India).
 import { toCandidate, matchPendingCandidate, isFieldResolved } from './station-resolution.js';
 import type { StationResolutionCandidate, PendingStationResolution } from './station-resolution.js';
@@ -228,6 +229,8 @@ interface TurnState {
   wasFollowUp: boolean;
   /** Time-of-day/window filter the AI read from the CURRENT turn (reconciled against the user's literal words; null when none). */
   filterHint: SearchFilterHint | null;
+  /** True when the primary AI understand() hit TimeoutError — never invent facts to fill the gap. */
+  aiTimedOut: boolean;
 }
 
 // ── AI understanding with timeout + fallback ─────────────────────────────────
@@ -236,15 +239,17 @@ async function understand(deps: OrchestratorDependencies, context: ConversationC
   const fallback = deps.fallbackNlu ?? new DeterministicNLUProvider();
   const timeoutMs = deps.aiTimeoutMs ?? 6_000;
 
+  let aiTimedOut = false;
   if (deps.ai.providerId !== 'deterministic-nlu') {
     try {
       const raw = await withTimeout(deps.ai.understand(buildUnderstandingInput(context, message, aiToolCatalogue(deps))), timeoutMs);
       const validated = validateUnderstanding(deps, raw);
       if (validated.ok && validated.result) {
-        return { understanding: validated.result, usedFallbackNlu: false, safetyRejections: validated.toolErrors };
+        return { understanding: validated.result, usedFallbackNlu: false, safetyRejections: validated.toolErrors, aiTimedOut: false };
       }
       // invalid structured output → deterministic fallback (never trust AI JSON blindly)
-    } catch {
+    } catch (error) {
+      aiTimedOut = error instanceof TimeoutError;
       // AI provider failed (timeout / 401 / 429 / unusable) — fall through.
     }
     const rawFallback = await fallback.understand(buildUnderstandingInput(context, message, aiToolCatalogue(deps)));
@@ -253,12 +258,13 @@ async function understand(deps: OrchestratorDependencies, context: ConversationC
       understanding: validatedFallback?.result ?? null,
       usedFallbackNlu: true,
       safetyRejections: validatedFallback?.toolErrors ?? [],
+      aiTimedOut,
     };
   }
 
   const raw = await deps.ai.understand(buildUnderstandingInput(context, message, aiToolCatalogue(deps)));
   const validated = validateUnderstanding(deps, raw);
-  return { understanding: validated?.result ?? null, usedFallbackNlu: false, safetyRejections: validated?.toolErrors ?? [] };
+  return { understanding: validated?.result ?? null, usedFallbackNlu: false, safetyRejections: validated?.toolErrors ?? [], aiTimedOut: false };
 }
 
 /** Real tool catalogue the AI may request (READ/DRAFT, money-safe tools only). */
@@ -347,8 +353,24 @@ async function finish(
 
   const anyUsableData = state.toolResults.some((result) => result.ok && result.data !== null);
   const toolsFailedHonestly = state.toolResults.length > 0 && !anyUsableData;
-  if (options.factsFromTools === true && toolsFailedHonestly) {
-    reply = railwayUnavailableReply(state.toolResults[state.toolResults.length - 1]!);
+  const lastTool = state.toolResults[state.toolResults.length - 1];
+  const railwayFetchFailed = Boolean(
+    lastTool &&
+      ((lastTool.unavailableReason && lastTool.unavailableReason !== 'NOT_IMPLEMENTED') ||
+        lastTool.error?.code === 'RAILWAY_DATA_UNAVAILABLE' ||
+        lastTool.error?.code === 'RAILWAY_TIMEOUT' ||
+        lastTool.error?.code === 'RAILWAY_CAPABILITY_UNSUPPORTED' ||
+        lastTool.error?.code === 'INVALID_RAILWAY_QUERY'),
+  );
+  // No verified railway payload → never let NLU/template/AI invent trains/seats/times.
+  if (toolsFailedHonestly && (options.factsFromTools === true || railwayFetchFailed || state.aiTimedOut)) {
+    if (state.aiTimedOut || lastTool?.error?.code === 'RAILWAY_TIMEOUT') {
+      reply = railwayFetchSlowReply();
+    } else {
+      reply = railwayUnavailableReply(lastTool!);
+    }
+  } else if (state.aiTimedOut && !anyUsableData && state.toolResults.length === 0 && intent === 'UNKNOWN') {
+    reply = railwayFetchSlowReply();
   }
 
   // NVIDIA phrases every user-facing reply. Skip only when tools returned no
@@ -689,6 +711,7 @@ async function orchestrateSingleTurn(
     chips: null,
     wasFollowUp: false,
     filterHint: null,
+    aiTimedOut: false,
   };
   state.context = addConversationMessage(state.context, { role: 'user', content: userMessage }, nowIso(state));
 
@@ -739,15 +762,21 @@ async function orchestrateSingleTurn(
         det.slots.travelClass !== null ||
         det.slots.pnr !== null;
       if (hasStructure) {
-        understood = { understanding: det, usedFallbackNlu: true, safetyRejections: understood.safetyRejections };
+        understood = { understanding: det, usedFallbackNlu: true, safetyRejections: understood.safetyRejections, aiTimedOut: understood.aiTimedOut };
       }
     }
   }
   state.safetyRejections.push(...understood.safetyRejections);
+  state.aiTimedOut = understood.aiTimedOut === true;
   const understanding = understood.understanding;
 
   if (!understanding) {
-    return finish(state, 'UNKNOWN', rephraseReply(), { usedFallbackNlu: understood.usedFallbackNlu });
+    return finish(
+      state,
+      'UNKNOWN',
+      state.aiTimedOut ? railwayFetchSlowReply() : rephraseReply(),
+      { usedFallbackNlu: understood.usedFallbackNlu },
+    );
   }
 
   const u = understanding;
